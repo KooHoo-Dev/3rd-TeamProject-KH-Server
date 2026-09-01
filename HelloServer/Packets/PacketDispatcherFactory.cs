@@ -9,6 +9,8 @@ public static class PacketDispatcherFactory
         {
             new PlayerMovePacketHandler(),
             new ChatSendPacketHandler(),
+            new TerrainExcavationPacketHandler(),
+            new WorldItemPickupPacketHandler(),
         });
     }
 }

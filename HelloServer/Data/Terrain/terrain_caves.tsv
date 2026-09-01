@@ -1,0 +1,5 @@
+ProfileID	CaveOrder	MinDepthRatio	MaxDepthRatio	CaveCount	MinLength	MaxLength	MinRadius	MaxRadius	MaxAttempts
+Default	0	0.15	0.45	5	8	18	1	2	20
+Default	1	0.40	0.80	4	12	25	1	3	20
+CollapseTest	0	0.15	0.45	3	6	12	1	2	15
+CollapseTest	1	0.40	0.80	2	8	15	1	2	15

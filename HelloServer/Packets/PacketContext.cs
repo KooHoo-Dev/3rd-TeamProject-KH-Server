@@ -4,6 +4,7 @@ namespace HelloServer;
 public sealed class PacketContext
 {
     private readonly Func<object, Task> broadcastAsync;
+    private readonly Func<object, Task> sendAsync;
     private readonly Action<MoveMessage> moveReceived;
 
     public string RoomCode { get; }
@@ -14,14 +15,21 @@ public sealed class PacketContext
         string roomCode,
         User user,
         GameSession gameSession,
+        Func<object, Task> sendAsync,
         Func<object, Task> broadcastAsync,
         Action<MoveMessage> moveReceived)
     {
         RoomCode = roomCode;
         User = user;
         GameSession = gameSession;
+        this.sendAsync = sendAsync;
         this.broadcastAsync = broadcastAsync;
         this.moveReceived = moveReceived;
+    }
+
+    public Task SendAsync(object message)
+    {
+        return sendAsync(message);
     }
 
     public Task BroadcastAsync(object message)

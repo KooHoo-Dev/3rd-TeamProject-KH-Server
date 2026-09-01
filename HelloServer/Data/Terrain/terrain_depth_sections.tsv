@@ -1,0 +1,9 @@
+ProfileID	SectionID	SectionOrder	MinDepthRatio	MaxDepthRatio	BaseTileType
+Default	Surface	0	0	0.25	Ground
+Default	Soil	1	0.25	0.5	Dirt
+Default	Rock	2	0.5	0.75	Stone
+Default	Deep	3	0.75	1	DeepStone
+CollapseTest	TestSurface	0	0	0.25	Ground
+CollapseTest	TestSoil	1	0.25	0.5	Dirt
+CollapseTest	TestRock	2	0.5	0.75	Stone
+CollapseTest	TestDeep	3	0.75	1	DeepStone

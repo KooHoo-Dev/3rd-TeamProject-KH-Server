@@ -18,9 +18,28 @@ public static class PacketTypes
     // refactor/server-sync-foundation 클라이언트 계약과 동일한 Type 값입니다.
     public const string MapSession = "map_session";
     public const string TerrainExcavationRequest = "terrain_excavate";
+    public const string TerrainExcavate = "terrain.excavate";
     public const string TerrainChangeBatch = "terrain_batch";
     public const string TerrainSnapshot = "terrain_snapshot";
     public const string ExplorationSnapshot = "exploration_snapshot";
+
+    public const string WorldItemSpawned = "world_item.spawned";
+    public const string WorldItemRemoved = "world_item.removed";
+    public const string WorldItemPickup = "world_item.pickup";
+    public const string WorldItemSnapshot = "world_item.snapshot";
+    public const string InventorySnapshot = "inventory.snapshot";
+    public const string Error = "error";
+}
+
+public sealed class ErrorMessage : PacketHeader
+{
+    public ErrorMessage()
+    {
+        Type = PacketTypes.Error;
+    }
+
+    public string Code { get; set; }
+    public string Message { get; set; }
 }
 
 // 모든 메시지에서 Type을 먼저 읽고 선택적으로 요청을 연결할 수 있는 공통 헤더입니다.

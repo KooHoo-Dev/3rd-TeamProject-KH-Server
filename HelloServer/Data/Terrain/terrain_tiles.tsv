@@ -1,0 +1,7 @@
+TileType	Name	MaxDurability	IsMineable	CanCreateCollider	CanSupportTerrain
+Ground	땅	1	TRUE	TRUE	FALSE
+Dirt	흙	1	TRUE	TRUE	FALSE
+Stone	돌	3	TRUE	TRUE	FALSE
+Bedrock	기반암	0	FALSE	TRUE	TRUE
+DeepStone	심층암	4	TRUE	TRUE	FALSE
+DeathLoot	사망 보관함	1	TRUE	TRUE	FALSE

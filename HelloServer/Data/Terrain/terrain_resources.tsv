@@ -1,0 +1,3 @@
+ResourceID	Name	MaxDurability	PrefabKey	DropItemID	DropCount
+1	석탄	2	CoalResource	101	1
+2	철광석	3	IronResource	102	1

@@ -63,7 +63,7 @@ public class Room
     {
         this.code = code;
         this.logMovesPerSecond = logMovesPerSecond;
-        gameSession = new GameSession();
+        gameSession = new GameSession(code);
         packetDispatcher = PacketDispatcherFactory.CreateDefault();
     }
 
@@ -96,7 +96,18 @@ public class Room
                 await socket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
 
             // 예외 처리부터 해줍니다. 소켓이 닫혔을 경우.
-            if (result.MessageType == WebSocketMessageType.Close) return null;
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                if (socket.State == WebSocketState.CloseReceived)
+                {
+                    await socket.CloseOutputAsync(
+                        result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
+                        result.CloseStatusDescription,
+                        CancellationToken.None);
+                }
+
+                return null;
+            }
             // 일단 메세지가 도착을 했으면 StringBuilder에 이어 붙혀 줍니다. 
             builder.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
             // 메세지가 끝났니?. 끝났다면
@@ -114,6 +125,7 @@ public class Room
             code,
             member.User,
             gameSession,
+            message => SendAsync(member, message),
             message => BroadcastAsync(message),
             move => LogMove(member, move));
 
@@ -256,10 +268,15 @@ public class Room
             welcome.Users = already.ToArray(); // 현재 방에 있는 유저들 정보를 보낸다
             await SendAsync(member, welcome);
 
+            gameSession.AddPlayer(member.User);
             if (gameSession.TryCreateMapSessionMessage(out MapSessionMessage mapSession))
                 await SendAsync(member, mapSession);
+            await SendAsync(member, gameSession.CreateTerrainSnapshotMessage());
+            await SendAsync(member, gameSession.CreateWorldItemSnapshotMessage());
+            await SendAsync(
+                member,
+                gameSession.CreateInventorySnapshotMessage(member.User.Id));
 
-            gameSession.AddPlayer(member.User);
             members[member.User.Id] = member;
             // join 메시지를 뿌린다. 접속자인 member 에게는 보내지 않는다
             await BroadcastAsync(new JoinMessage { User = member.User }, member.User.Id);
@@ -317,6 +334,13 @@ public class Room
         catch (OperationCanceledException)
         {
             // 서버 꺼지는 중. 정상임
+        }
+        catch (WebSocketException exception)
+        {
+            // 클라이언트 프로세스가 정상 close 프레임 없이 종료된 경우에도
+            // 방의 Leave 정리 경로를 그대로 수행합니다.
+            Console.WriteLine(
+                $"[{code}] {member.User.NickName}({member.User.Id}) 연결 종료: {exception.WebSocketErrorCode}");
         }
         finally
         {
