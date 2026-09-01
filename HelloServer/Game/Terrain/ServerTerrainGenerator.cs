@@ -8,7 +8,6 @@ public sealed class ServerGeneratedTerrain
 
 public sealed class ServerTerrainGenerator
 {
-    private const int RespawnAreaHeight = 7;
     private static readonly GridCoord[] Directions =
     {
         new(-1, 0), new(1, 0), new(0, -1), new(0, 1),
@@ -56,7 +55,9 @@ public sealed class ServerTerrainGenerator
                 MapSessionID = mapSessionID,
                 Revision = 0,
                 MapWidth = profile.Width,
-                MapHeight = profile.Height,
+                // 리스폰 구조물은 기본 지형 최상단 위에 생성된다.
+                // Snapshot 범위도 함께 확장해야 클라이언트 지형/미니맵에서 잘리지 않는다.
+                MapHeight = profile.MapHeight,
                 CellSize = profile.CellSize,
                 OriginX = profile.OriginX,
                 OriginY = profile.OriginY,
@@ -296,7 +297,7 @@ public sealed class ServerTerrainGenerator
         int minX = (profile.Width - profile.TopOpeningWidth) / 2;
         int maxX = minX + profile.TopOpeningWidth - 1;
         int minY = profile.Height;
-        int maxY = minY + RespawnAreaHeight - 1;
+        int maxY = minY + profile.RespawnAreaHeight - 1;
         for (int x = minX; x <= maxX; x++)
             cells[new GridCoord(x, maxY)] = CreateCell(
                 new GridCoord(x, maxY), ServerTerrainTileType.Bedrock, 0);

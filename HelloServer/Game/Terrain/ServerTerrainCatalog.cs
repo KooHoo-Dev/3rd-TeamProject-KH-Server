@@ -39,6 +39,8 @@ public sealed class ServerTerrainCatalog
         public float CellSize { get; init; }
         public int TopOpeningWidth { get; init; }
         public int BoundaryThickness { get; init; }
+        public int RespawnAreaHeight { get; init; }
+        public int MapHeight => Height + RespawnAreaHeight;
         public int BottomFlatWidth => Math.Max(
             1,
             (int)Math.Round(Width * 0.25f, MidpointRounding.AwayFromZero));
@@ -170,7 +172,7 @@ public sealed class ServerTerrainCatalog
     {
         foreach (string[] row in ReadRows(path))
         {
-            profiles.Add(row[0], new ProfileDefinition
+            ProfileDefinition profile = new()
             {
                 ProfileID = row[0],
                 Name = row[1],
@@ -179,7 +181,14 @@ public sealed class ServerTerrainCatalog
                 CellSize = ParseFloat(row[4]),
                 TopOpeningWidth = ParseInt(row[5]),
                 BoundaryThickness = ParseInt(row[6]),
-            });
+                RespawnAreaHeight = ParseInt(row[7]),
+            };
+
+            if (profile.RespawnAreaHeight <= 0)
+                throw new InvalidDataException(
+                    $"RespawnAreaHeight는 1 이상이어야 합니다: {profile.ProfileID}");
+
+            profiles.Add(profile.ProfileID, profile);
         }
     }
 
