@@ -4,13 +4,8 @@ namespace HelloServer;
 
 public sealed class TerrainExcavationPacketHandler : IPacketHandler
 {
-    private static readonly string[] SupportedTypes =
-    {
-        PacketTypes.TerrainExcavationRequest,
-        PacketTypes.TerrainExcavate,
-    };
-
-    public IReadOnlyCollection<string> Types => SupportedTypes;
+    public IReadOnlyCollection<string> Types =>
+        new[] { PacketTypes.TerrainExcavationRequest };
 
     public async Task HandleAsync(
         PacketContext context,
@@ -19,27 +14,30 @@ public sealed class TerrainExcavationPacketHandler : IPacketHandler
     {
         TerrainExcavationRequest request =
             JsonSerializer.Deserialize<TerrainExcavationRequest>(json);
-        if (context.GameSession.TryExcavate(
+
+        if (!context.GameSession.TryExcavate(
                 context.User.Id,
                 request,
-                out TerrainChangeBatchMessage terrainMessage,
+                out TerrainChangeBatchMessage batch,
                 out WorldItemSpawnedMessage[] spawnedMessages,
                 out string errorCode,
-                out string errorMessage) == false)
+                out string errorMessage))
         {
             await context.SendAsync(new ErrorMessage
             {
                 RequestId = request?.RequestId,
                 Code = errorCode,
-                Message = errorMessage,
+                Message = errorMessage
             });
+
             if (errorCode == "terrain.revision_mismatch")
                 await context.SendAsync(
                     context.GameSession.CreateTerrainSnapshotMessage(request?.RequestId));
+
             return;
         }
 
-        await context.BroadcastAsync(terrainMessage);
+        await context.BroadcastAsync(batch);
         foreach (WorldItemSpawnedMessage spawnedMessage in spawnedMessages)
             await context.BroadcastAsync(spawnedMessage);
     }

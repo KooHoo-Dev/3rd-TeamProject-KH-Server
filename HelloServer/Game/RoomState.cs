@@ -33,7 +33,7 @@ public sealed class MapSessionRoomState
 public sealed class TerrainRoomState
 {
     public uint Revision { get; internal set; }
-    public float CellSize { get; internal set; }
+    public float CellSize { get; internal set; } = 1f;
     public float OriginX { get; internal set; }
     public float OriginY { get; internal set; }
     public ConcurrentDictionary<GridCoord, TerrainCellRoomState> Cells { get; } = new();

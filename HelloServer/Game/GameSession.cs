@@ -86,7 +86,19 @@ public sealed class GameSession
             return new TerrainSnapshotMessage
             {
                 RequestId = requestId,
-                Snapshot = CreateTerrainSnapshot(),
+                Snapshot = new TerrainSnapshotDto
+                {
+                    MapSessionID = State.MapSession.Descriptor.MapSessionID,
+                    Revision = State.Terrain.Revision,
+                    CellSize = State.Terrain.CellSize,
+                    OriginX = State.Terrain.OriginX,
+                    OriginY = State.Terrain.OriginY,
+                    Cells = State.Terrain.Cells
+                        .OrderBy(pair => pair.Key.Y)
+                        .ThenBy(pair => pair.Key.X)
+                        .Select(pair => CreateCellChange(pair.Key, pair.Value))
+                        .ToList()
+                }
             };
         }
     }
