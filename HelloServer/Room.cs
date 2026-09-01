@@ -24,11 +24,6 @@ public class Room
         public User User;
         public WebSocket Socket;
 
-        // 원래는 벡터로 Position으로 묶어서 사용하는게 좋습니다.
-        // 님들이 개발할때는 그렇게 하세여
-        public float X;
-        public float Y;
-
         public int MovesSinceLog;
         
         // DateTime?
@@ -58,7 +53,9 @@ public class Room
     // lock블록이 await가 안먹어서 사용합니다.
     private readonly SemaphoreSlim gate = new SemaphoreSlim(1, 1);
     private readonly string code; // 방번호
-    private readonly int logMovesPerSecond; // 룸허브를 통해서 전달 받습니다. 
+    private readonly int logMovesPerSecond; // 룸허브를 통해서 전달 받습니다.
+    private readonly GameSession gameSession;
+    private readonly PacketDispatcher packetDispatcher;
 
     public bool IsEmpty => members.IsEmpty;
     
@@ -66,6 +63,8 @@ public class Room
     {
         this.code = code;
         this.logMovesPerSecond = logMovesPerSecond;
+        gameSession = new GameSession();
+        packetDispatcher = PacketDispatcherFactory.CreateDefault();
     }
 
     #region 듣기
@@ -111,6 +110,13 @@ public class Room
     // 멤버와 연결이 끊길때까지 멤버가 보낸 메시지를 계속 듣는다. 
     private async Task ReceiveLoopAsync(Member member, CancellationToken token)
     {
+        PacketContext context = new PacketContext(
+            code,
+            member.User,
+            gameSession,
+            message => BroadcastAsync(message),
+            move => LogMove(member, move));
+
         // 토큰에 취소 요청이 없으면 계속 돈다
         while (token.IsCancellationRequested == false)
         {
@@ -118,52 +124,10 @@ public class Room
             // text가 비어있으면 닫았다는 뜻
             if (string.IsNullOrEmpty(text)) return;
 
-            // 아래부터는 Json 텍스트 처리가 된다.
-            // 분기에 따라 알맞은 처리 함수를 선택하여 실행해 준다.
-            // JsonSerializer?
-            // C#에서 Json의 직렬화, 역직렬화를 담당하는 클래스 입니다.
-            // Unity와 C#에서 사용하는 직렬화 클래스가 다른것에 유의하세여
-            // (타입이랑 매개변수로 텍스트만 넘기면 알아서 잘 처리해줍니다)
-            TypeOnly kind = JsonSerializer.Deserialize<TypeOnly>(text);
-            
-            if(kind?.Type == "move") HandleMove(member, text);
-            else if(kind?.Type == "chat") await HandleChatAsync(member, text);
-            
-            // 모르는 정보는 그냥 흘려버립니다.
-            // Tip
-            // : 여기 부분에 여러분이 넣고싶은 커스텀한 함수를 처리하는
-            // 구간을 만들면 되겠죠?   
+            // Type 분기와 도메인 처리는 Dispatcher와 Handler에 위임합니다.
+            // 등록되지 않은 Type은 기존과 같이 무시합니다.
+            await packetDispatcher.DispatchAsync(context, text, token);
         }
-    }
-
-    // 이동 관련 메시지를 처리하는 함수
-    private void HandleMove(Member member, string text)
-    {
-        // 메시지를 읽어준다
-        MoveMessage move = JsonSerializer.Deserialize<MoveMessage>(text);
-        // move 메시지의 내용을 member의 X,Y 내용에 카피해준다
-        member.X = move.X;
-        member.Y = move.Y;
-        member.MovesSinceLog++;
-        
-        LogMove(member, move);
-    }
-
-    // 채팅 관련 메시지를 처리하는 함수
-    private async Task HandleChatAsync(Member member, string text)
-    {
-        // 먼저 Chat메시지를 읽어 준다
-        ChatMessage chat = JsonSerializer.Deserialize<ChatMessage>(text);
-        // 온 메시지에서 사용자가 말한 부분만 읽어준다.
-        // .Trim() 함수를 이용해서 앞,뒤 공백을 제거해준다
-        string said = chat.Text?.Trim();
-        Console.WriteLine($"[{code}] {chat.NickName} : {said}");
-        // 예시 출력 : [5623] Jay : 안뇽
-        
-        // 여기까지 처리됐으면
-        // (서버) -> (다른 클라이언트) 들에게 보낸다
-        // 받은 객체를 그대로 보낸다.
-        await BroadcastAsync(chat);
     }
 
     #endregion
@@ -232,21 +196,8 @@ public class Room
         // 방에 멤버가 없다면(방이 사라질때) 보내지 않는다.
         if (members.IsEmpty) return;
         
-        // 사람마다 위치 데이터 객체 하나씩 만든다.
-        List<PlayerState> states = new List<PlayerState>();
-
-        foreach (Member member in members.Values)
-        {
-            states.Add(new PlayerState()
-            {
-                Id = member.User.Id,
-                X = member.X,
-                Y = member.Y,
-            });
-        }
-
-        // states를 배열로 바꿔서 뿌린다(Broadcast)
-        await BroadcastAsync(new StateMessage() { States = states.ToArray() });
+        PlayerState[] states = gameSession.CreatePlayerStateSnapshot();
+        await BroadcastAsync(new StateMessage { States = states });
     }
     
     #endregion
@@ -263,9 +214,9 @@ public class Room
         if (string.IsNullOrEmpty(first)) return null;
         
         // 타입을 꺼내준다
-        TypeOnly kind = JsonSerializer.Deserialize<TypeOnly>(first);
+        PacketHeader kind = JsonSerializer.Deserialize<PacketHeader>(first);
         // hello인지 확인해준다
-        if (kind?.Type != "hello") 
+        if (kind?.Type != PacketTypes.Hello)
         {
             Console.WriteLine($"[{code}] 첫 메시지가 hello가 아님 : {first}");
             return null;
@@ -305,6 +256,10 @@ public class Room
             welcome.Users = already.ToArray(); // 현재 방에 있는 유저들 정보를 보낸다
             await SendAsync(member, welcome);
 
+            if (gameSession.TryCreateMapSessionMessage(out MapSessionMessage mapSession))
+                await SendAsync(member, mapSession);
+
+            gameSession.AddPlayer(member.User);
             members[member.User.Id] = member;
             // join 메시지를 뿌린다. 접속자인 member 에게는 보내지 않는다
             await BroadcastAsync(new JoinMessage { User = member.User }, member.User.Id);
@@ -330,6 +285,7 @@ public class Room
         try
         {
             members.TryRemove(member.User.Id, out _);
+            gameSession.RemovePlayer(member.User.Id);
             // 퇴장한것을 알려줍니다.
             await BroadcastAsync(new LeaveMessage { Id = member.User.Id }, member.User.Id);
         }
@@ -382,7 +338,13 @@ public class Room
     //  대신 그동안 몇 번 받았는지 출력해줌.
     private void LogMove(Member member, MoveMessage move)
     {
+        member.MovesSinceLog++;
+
         if (logMovesPerSecond <= 0) return;
+
+        if (gameSession.State.Players.TryGetValue(
+                member.User.Id, out PlayerRoomState player) == false)
+            return;
 
         TimeSpan gap = DateTime.Now - member.LastLogAt;
         if (gap.TotalSeconds < 1.0 / logMovesPerSecond) return;
@@ -393,7 +355,7 @@ public class Room
 
         Console.WriteLine(
             $"[{code}] 받음 {member.User.NickName}({member.User.Id}) " +
-            $"({member.X,7:F2}, {member.Y,7:F2})  " +
+            $"({player.X,7:F2}, {player.Y,7:F2})  " +
             $"지난 {gap.TotalSeconds:F1}초에 {member.MovesSinceLog}번{claimed}");
 
         member.MovesSinceLog = 0;
