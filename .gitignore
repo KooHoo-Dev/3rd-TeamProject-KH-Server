@@ -55,3 +55,12 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Unity project directories accidentally placed beside the server source
+/Assets/
+/Library/
+/Logs/
+/Packages/
+/ProjectSettings/
+/UserSettings/
+.idea/.idea.3rd-TeamProject-KH-Server.dir/.idea
