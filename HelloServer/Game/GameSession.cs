@@ -3,12 +3,11 @@ namespace HelloServer;
 // Room의 연결 수명과 분리된 서버 권위형 경기 상태 접근 지점입니다.
 public sealed class GameSession
 {
-    private const float MaximumExcavationDistance = 4f;
     private const float MaximumPickupDistance = 3f;
-    private const int ServerDamagePerExcavation = 1;
 
     private readonly object stateGate = new();
     private readonly ServerTerrainCatalog terrainCatalog;
+    private readonly ServerItemCatalog itemCatalog;
     private long lastDropID;
 
     public RoomState State { get; } = new();
@@ -17,6 +16,8 @@ public sealed class GameSession
     {
         string dataRoot = Path.Combine(AppContext.BaseDirectory, "Data", "Terrain");
         terrainCatalog = new ServerTerrainCatalog(dataRoot);
+        itemCatalog = new ServerItemCatalog(
+            Path.Combine(AppContext.BaseDirectory, "Data", "Item", "Items.tsv"));
         int seed = Random.Shared.Next(1, int.MaxValue);
         ServerGeneratedTerrain generated =
             new ServerTerrainGenerator(terrainCatalog).Generate(roomCode, "Default", seed);
@@ -150,7 +151,10 @@ public sealed class GameSession
                 return Fail("terrain.revision_mismatch", "지형 Revision이 일치하지 않습니다.", out errorCode, out errorMessage);
             if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
                 return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
-            if (IsWithinDistance(player, request.TargetCell, MaximumExcavationDistance) == false)
+            if (request.ItemID != player.EquippedPickaxeItemID ||
+                !itemCatalog.TryGetPickaxe(player.EquippedPickaxeItemID, out ServerItemCatalog.PickaxeDefinition pickaxe))
+                return Fail("terrain.invalid_pickaxe", "서버에 장착된 곡괭이와 일치하지 않습니다.", out errorCode, out errorMessage);
+            if (IsWithinDistance(player, request.TargetCell, pickaxe.Range) == false)
                 return Fail("terrain.out_of_range", "채굴 대상이 서버 허용 거리 밖입니다.", out errorCode, out errorMessage);
             if (State.Terrain.Cells.TryGetValue(request.TargetCell, out TerrainCellRoomState cell) == false)
                 return Fail("terrain.empty_cell", "대상 셀에 지형이 없습니다.", out errorCode, out errorMessage);
@@ -161,7 +165,7 @@ public sealed class GameSession
                 return Fail("terrain.not_mineable", "채굴할 수 없는 지형입니다.", out errorCode, out errorMessage);
 
             uint baseRevision = State.Terrain.Revision;
-            int remaining = Math.Max(0, cell.Durability - ServerDamagePerExcavation);
+            int remaining = Math.Max(0, cell.Durability - pickaxe.DigPower);
             TerrainCellChangeDto change;
             List<WorldItemSpawnedMessage> spawned = new();
             if (remaining > 0)
@@ -402,8 +406,20 @@ public sealed class GameSession
             if (State.WorldItems.Drops.TryGetValue(request.DropID, out WorldItemDropDto drop) == false)
                 return Fail("item.not_found", "이미 획득되었거나 존재하지 않는 아이템입니다.", out errorCode, out errorMessage);
 
-            float dx = player.X - drop.X;
-            float dy = player.Y - drop.Y;
+            if (!float.IsFinite(request.X) || !float.IsFinite(request.Y))
+                return Fail("item.invalid_position", "아이템 좌표가 유효하지 않습니다.", out errorCode, out errorMessage);
+
+            float mapMinX = State.Terrain.OriginX;
+            float mapMinY = State.Terrain.OriginY;
+            float mapMaxX = mapMinX + State.Terrain.MapWidth * State.Terrain.CellSize;
+            float mapMaxY = mapMinY + State.Terrain.MapHeight * State.Terrain.CellSize;
+            if (request.X < mapMinX || request.X > mapMaxX ||
+                request.Y < mapMinY || request.Y > mapMaxY)
+                return Fail("item.invalid_position", "아이템 좌표가 맵 범위 밖입니다.", out errorCode, out errorMessage);
+
+            // 현재 단계에서는 클라이언트가 Rigidbody/FallingChunk 물리로 계산한 좌표를 사용한다.
+            float dx = player.X - request.X;
+            float dy = player.Y - request.Y;
             if (dx * dx + dy * dy > MaximumPickupDistance * MaximumPickupDistance)
                 return Fail("item.out_of_range", "아이템이 서버 허용 거리 밖입니다.", out errorCode, out errorMessage);
             if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
@@ -414,6 +430,8 @@ public sealed class GameSession
                 return Fail("inventory.overflow", "아이템 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
 
             inventory.Quantities[drop.ItemID] = previous + drop.Quantity;
+            drop.X = request.X;
+            drop.Y = request.Y;
             State.WorldItems.Drops.TryRemove(drop.DropID, out _);
             removedMessage = new WorldItemRemovedMessage
             {

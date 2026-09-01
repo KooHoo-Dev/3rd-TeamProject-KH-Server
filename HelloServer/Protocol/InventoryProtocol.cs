@@ -55,6 +55,8 @@ public sealed class WorldItemPickupRequest : PacketHeader
     }
 
     public string DropID { get; set; }
+    public float X { get; set; }
+    public float Y { get; set; }
 }
 
 public sealed class WorldItemSnapshotMessage : PacketHeader

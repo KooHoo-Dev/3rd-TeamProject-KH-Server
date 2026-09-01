@@ -10,6 +10,7 @@ public sealed class TerrainExcavationRequest : PacketHeader
     public long ClientRequestID { get; set; }
     public uint ExpectedTerrainRevision { get; set; }
     public GridCoord TargetCell { get; set; }
+    public int ItemID { get; set; }
     public int DamageAmount { get; set; }
 
     public bool IsValid()

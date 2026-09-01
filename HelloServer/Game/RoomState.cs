@@ -23,6 +23,7 @@ public sealed class PlayerRoomState
     public string NickName { get; init; }
     public float X { get; set; }
     public float Y { get; set; }
+    public int EquippedPickaxeItemID { get; set; } = 2; // ID 2: 개발용 곡괭이
 }
 
 public sealed class MapSessionRoomState
