@@ -18,6 +18,25 @@ public sealed class TerrainExcavationRequest : PacketHeader
     }
 }
 
+public sealed class TerrainCollapsePlacementRequest : PacketHeader
+{
+    public TerrainCollapsePlacementRequest()
+    {
+        Type = PacketTypes.TerrainCollapsePlacementRequest;
+    }
+
+    public long CollapseID { get; set; }
+    public uint ExpectedTerrainRevision { get; set; }
+    public List<GridCoord> SourceCells { get; set; } = new();
+    public List<TerrainCellChangeDto> Changes { get; set; } = new();
+
+    public bool IsValid()
+    {
+        return CollapseID > 0 && SourceCells.Count > 0 &&
+               SourceCells.Count == Changes.Count;
+    }
+}
+
 public struct TerrainLootEntryDto
 {
     public int ItemID { get; set; }

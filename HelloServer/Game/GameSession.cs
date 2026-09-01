@@ -201,6 +201,185 @@ public sealed class GameSession
         }
     }
 
+    public bool TryPlaceCollapse(
+        TerrainCollapsePlacementRequest request,
+        out TerrainChangeBatchMessage terrainMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        terrainMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        lock (stateGate)
+        {
+            if (request?.IsValid() != true)
+            {
+                return Fail(
+                    "terrain.collapse_invalid",
+                    "유효하지 않은 낙하 지형 배치 요청입니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            if (request.ExpectedTerrainRevision != State.Terrain.Revision)
+            {
+                return Fail(
+                    "terrain.revision_mismatch",
+                    "지형 Revision이 일치하지 않습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            HashSet<GridCoord> sourceCells = request.SourceCells.ToHashSet();
+            HashSet<GridCoord> targetCells = request.Changes
+                .Select(change => change.Coord)
+                .ToHashSet();
+
+            if (sourceCells.Count != request.SourceCells.Count ||
+                targetCells.Count != request.Changes.Count)
+            {
+                return Fail(
+                    "terrain.collapse_invalid",
+                    "낙하 지형 좌표가 중복되었습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            // 서버에 원본 지형이 아직 존재하는지 확인한다.
+            foreach (GridCoord sourceCell in sourceCells)
+            {
+                if (!State.Terrain.Cells.TryGetValue(
+                        sourceCell,
+                        out TerrainCellRoomState sourceState))
+                {
+                    return Fail(
+                        "terrain.collapse_conflict",
+                        $"낙하 지형 원본 셀이 없습니다: ({sourceCell.X}, {sourceCell.Y})",
+                        out errorCode,
+                        out errorMessage);
+                }
+
+                if (sourceState.TileTypeID ==
+                    (int)ServerTerrainTileType.Bedrock)
+                {
+                    return Fail(
+                        "terrain.collapse_invalid",
+                        "기반암은 낙하 지형으로 이동할 수 없습니다.",
+                        out errorCode,
+                        out errorMessage);
+                }
+            }
+
+            // 최종 좌표가 맵 내부에 있고 기존 고정 지형과 겹치지 않는지 확인한다.
+            // 원본 영역과 겹치는 것은 제자리 또는 부분 이동일 수 있으므로 허용한다.
+            foreach (TerrainCellChangeDto change in request.Changes)
+            {
+                bool isOutsideMap =
+                    change.Coord.X < 0 ||
+                    change.Coord.X >= State.Terrain.MapWidth ||
+                    change.Coord.Y < 0 ||
+                    change.Coord.Y >= State.Terrain.MapHeight;
+
+                if (isOutsideMap)
+                {
+                    return Fail(
+                        "terrain.collapse_out_of_bounds",
+                        $"낙하 지형 배치 좌표가 맵 밖입니다: " +
+                        $"({change.Coord.X}, {change.Coord.Y})",
+                        out errorCode,
+                        out errorMessage);
+                }
+
+                if (change.TileTypeID ==
+                        (int)ServerTerrainTileType.Empty ||
+                    change.TileTypeID ==
+                        (int)ServerTerrainTileType.Bedrock)
+                {
+                    return Fail(
+                        "terrain.collapse_invalid",
+                        "낙하 지형에 허용되지 않는 타일이 포함되어 있습니다.",
+                        out errorCode,
+                        out errorMessage);
+                }
+
+                bool overlapsStaticTerrain =
+                    !sourceCells.Contains(change.Coord) &&
+                    State.Terrain.Cells.ContainsKey(change.Coord);
+
+                if (overlapsStaticTerrain)
+                {
+                    return Fail(
+                        "terrain.collapse_conflict",
+                        $"낙하 지형이 기존 지형과 겹칩니다: " +
+                        $"({change.Coord.X}, {change.Coord.Y})",
+                        out errorCode,
+                        out errorMessage);
+                }
+            }
+
+            uint baseRevision = State.Terrain.Revision;
+
+            // 같은 좌표가 원본 제거와 최종 배치에 모두 포함될 수 있으므로
+            // 좌표별 Dictionary로 최종 Batch를 구성한다.
+            Dictionary<GridCoord, TerrainCellChangeDto> finalChanges = new();
+
+            // 서버의 원본 static 지형을 제거한다.
+            foreach (GridCoord sourceCell in sourceCells)
+            {
+                State.Terrain.Cells.TryRemove(sourceCell, out _);
+
+                finalChanges[sourceCell] = new TerrainCellChangeDto
+                {
+                    Coord = sourceCell,
+                    TileTypeID = (int)ServerTerrainTileType.Empty,
+                    Durability = 0,
+                    ResourceID = 0,
+                    LootEntries = new List<TerrainLootEntryDto>(),
+                };
+            }
+
+            // 클라이언트에서 계산한 낙하 완료 위치에 static 지형을 배치한다.
+            foreach (TerrainCellChangeDto change in request.Changes)
+            {
+                TerrainCellRoomState placedCell = new()
+                {
+                    TileTypeID = change.TileTypeID,
+                    Durability = change.Durability,
+                    ResourceID = change.ResourceID,
+                    LootEntries =
+                        change.LootEntries?.ToList() ??
+                        new List<TerrainLootEntryDto>(),
+                };
+
+                State.Terrain.Cells[change.Coord] = placedCell;
+                finalChanges[change.Coord] =
+                    CreateCellChange(change.Coord, placedCell);
+            }
+
+            State.Terrain.Revision = baseRevision + 1;
+
+            terrainMessage = new TerrainChangeBatchMessage
+            {
+                RequestId = request.RequestId,
+                Batch = new TerrainChangeBatchDto
+                {
+                    MapSessionID =
+                        State.MapSession.Descriptor.MapSessionID,
+                    CollapseID = request.CollapseID,
+                    BaseRevision = baseRevision,
+                    ResultRevision = State.Terrain.Revision,
+                    Changes = finalChanges.Values
+                        .OrderBy(change => change.Coord.Y)
+                        .ThenBy(change => change.Coord.X)
+                        .ToList(),
+                },
+            };
+
+            return true;
+        }
+    }
+
     public bool TryPickup(
         string playerId,
         WorldItemPickupRequest request,
