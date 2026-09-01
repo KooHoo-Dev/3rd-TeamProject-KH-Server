@@ -32,9 +32,14 @@ public sealed class ServerTerrainGenerator
         FillSections(cells, profile, sections, seed);
         ApplyBoundaries(cells, profile);
         ApplyCaves(cells, profile, catalog.GetCaves(profileID), random);
+        int removedFloatingCellCount = RemoveUnsupportedTerrain(cells);
         ApplyVariants(cells, sections, catalog.GetVariants(profileID), random);
         ApplyMinerals(cells, profile, sections, random);
         AttachRespawnArea(cells, profile);
+
+        if (removedFloatingCellCount > 0)
+            Console.WriteLine(
+                $"[{roomCode}] 초기 지형 안정화: 부유 셀 {removedFloatingCellCount}개 제거");
 
         string mapSessionID = $"{roomCode}-{Guid.NewGuid():N}";
         return new ServerGeneratedTerrain
@@ -179,6 +184,50 @@ public sealed class ServerTerrainGenerator
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 동굴 생성으로 기반암과 분리된 지형 그룹을 초기 Snapshot에서 제거한다.
+    /// 클라이언트의 TerrainManager.FindFloatingGroups와 동일하게 4방향 연결을 사용한다.
+    /// </summary>
+    private static int RemoveUnsupportedTerrain(
+        Dictionary<GridCoord, TerrainCellChangeDto> cells)
+    {
+        HashSet<GridCoord> supported = new();
+        Queue<GridCoord> queue = new();
+
+        foreach ((GridCoord coord, TerrainCellChangeDto cell) in cells)
+        {
+            if (cell.TileTypeID != (int)ServerTerrainTileType.Bedrock) continue;
+
+            supported.Add(coord);
+            queue.Enqueue(coord);
+        }
+
+        while (queue.Count > 0)
+        {
+            GridCoord current = queue.Dequeue();
+            foreach (GridCoord direction in Directions)
+            {
+                GridCoord next = new(
+                    current.X + direction.X,
+                    current.Y + direction.Y);
+
+                if (cells.ContainsKey(next) == false || supported.Add(next) == false)
+                    continue;
+
+                queue.Enqueue(next);
+            }
+        }
+
+        List<GridCoord> unsupported = cells.Keys
+            .Where(coord => supported.Contains(coord) == false)
+            .ToList();
+
+        foreach (GridCoord coord in unsupported)
+            cells.Remove(coord);
+
+        return unsupported.Count;
     }
 
     private void ApplyMinerals(
