@@ -33,6 +33,8 @@ public sealed class MapSessionRoomState
 public sealed class TerrainRoomState
 {
     public uint Revision { get; internal set; }
+    public int MapWidth { get; internal set; }
+    public int MapHeight { get; internal set; }
     public float CellSize { get; internal set; } = 1f;
     public float OriginX { get; internal set; }
     public float OriginY { get; internal set; }

@@ -50,6 +50,8 @@ public sealed class ServerTerrainGenerator
             {
                 MapSessionID = mapSessionID,
                 Revision = 0,
+                MapWidth = profile.Width,
+                MapHeight = profile.Height,
                 CellSize = profile.CellSize,
                 OriginX = profile.OriginX,
                 OriginY = profile.OriginY,

@@ -90,6 +90,8 @@ public sealed class GameSession
                 {
                     MapSessionID = State.MapSession.Descriptor.MapSessionID,
                     Revision = State.Terrain.Revision,
+                    MapWidth = State.Terrain.MapWidth,
+                    MapHeight = State.Terrain.MapHeight,
                     CellSize = State.Terrain.CellSize,
                     OriginX = State.Terrain.OriginX,
                     OriginY = State.Terrain.OriginY,
@@ -249,6 +251,8 @@ public sealed class GameSession
     {
         State.MapSession.Descriptor = generated.Session;
         State.Terrain.Revision = generated.Snapshot.Revision;
+        State.Terrain.MapWidth = generated.Snapshot.MapWidth;
+        State.Terrain.MapHeight = generated.Snapshot.MapHeight;
         State.Terrain.CellSize = generated.Snapshot.CellSize;
         State.Terrain.OriginX = generated.Snapshot.OriginX;
         State.Terrain.OriginY = generated.Snapshot.OriginY;
@@ -270,6 +274,8 @@ public sealed class GameSession
         {
             MapSessionID = State.MapSession.Descriptor.MapSessionID,
             Revision = State.Terrain.Revision,
+            MapWidth = State.Terrain.MapWidth,
+            MapHeight = State.Terrain.MapHeight,
             CellSize = State.Terrain.CellSize,
             OriginX = State.Terrain.OriginX,
             OriginY = State.Terrain.OriginY,

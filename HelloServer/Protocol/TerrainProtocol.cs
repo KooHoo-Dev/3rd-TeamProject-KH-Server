@@ -52,6 +52,8 @@ public sealed class TerrainSnapshotDto
 {
     public string MapSessionID { get; set; }
     public uint Revision { get; set; }
+    public int MapWidth { get; set; }
+    public int MapHeight { get; set; }
     public float CellSize { get; set; }
     public float OriginX { get; set; }
     public float OriginY { get; set; }
