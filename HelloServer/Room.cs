@@ -320,13 +320,15 @@ public class Room
     public async Task HandleAsync(WebSocket socket,
         string id, CancellationToken token)
     {
-        // Join처리를 실행하고 끝난뒤 멤버 객체를 저장해준다.
-        Member member = await JoinAsync(socket, id, token);
-        // hello 안보내고 딴소리 했다. 방에 못 들인다
-        if (member == null) return;
+        Member member = null;
 
         try
         {
+            // Join 단계의 Snapshot 전송 예외도 아래 공통 오류 처리에서 기록한다.
+            member = await JoinAsync(socket, id, token);
+            // hello 안보내고 딴소리 했다. 방에 못 들인다
+            if (member == null) return;
+
             // 접속완료 했으면 메시지를 계속 들을 수 있게
             // 루프를 호출해준다.
             await ReceiveLoopAsync(member, token);
@@ -342,11 +344,33 @@ public class Room
             Console.WriteLine(
                 $"[{code}] {member.User.NickName}({member.User.Id}) 연결 종료: {exception.WebSocketErrorCode}");
         }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(
+                $"[{code}] WebSocket 처리 예외 ({id}): {exception}");
+
+            if (member?.Socket.State == WebSocketState.Open)
+            {
+                try
+                {
+                    await SendAsync(member, new ErrorMessage
+                    {
+                        Code = "server.internal_error",
+                        Message = "서버가 메시지를 처리하는 중 오류가 발생했습니다.",
+                    });
+                }
+                catch (WebSocketException)
+                {
+                    // 이미 연결이 끊긴 경우에는 로그만 남기고 종료한다.
+                }
+            }
+        }
         finally
         {
             // 루프가 종료되었으면 연결이 끊어진 것
             // 퇴장 처리 해준다
-            await LeaveAsync(member);
+            if (member != null)
+                await LeaveAsync(member);
         }
     }
     
