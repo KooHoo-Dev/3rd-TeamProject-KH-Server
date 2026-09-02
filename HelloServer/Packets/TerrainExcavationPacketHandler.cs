@@ -15,30 +15,35 @@ public sealed class TerrainExcavationPacketHandler : IPacketHandler
         TerrainExcavationRequest request =
             JsonSerializer.Deserialize<TerrainExcavationRequest>(json);
 
-        if (!context.GameSession.TryExcavate(
-                context.User.Id,
-                request,
-                out TerrainChangeBatchMessage batch,
-                out WorldItemSpawnedMessage[] spawnedMessages,
-                out string errorCode,
-                out string errorMessage))
+        await context.ExecuteTerrainCommandAsync(async () =>
         {
-            await context.SendAsync(new ErrorMessage
+            if (context.GameSession.TryExcavate(
+                    context.User.Id,
+                    request,
+                    out TerrainChangeBatchMessage batch,
+                    out WorldItemSpawnedMessage[] spawnedMessages,
+                    out string errorCode,
+                    out string errorMessage) == false)
             {
-                RequestId = request?.RequestId,
-                Code = errorCode,
-                Message = errorMessage
-            });
+                await context.SendAsync(new ErrorMessage
+                {
+                    RequestId = request?.RequestId,
+                    Code = errorCode,
+                    Message = errorMessage
+                });
 
-            if (errorCode == "terrain.revision_mismatch")
-                await context.SendAsync(
-                    context.GameSession.CreateTerrainSnapshotMessage(request?.RequestId));
+                if (errorCode == "terrain.revision_mismatch")
+                    await context.SendAsync(
+                        context.GameSession.CreateTerrainSnapshotMessage(request?.RequestId));
 
-            return;
-        }
+                return;
+            }
 
-        await context.BroadcastAsync(batch);
-        foreach (WorldItemSpawnedMessage spawnedMessage in spawnedMessages)
-            await context.BroadcastAsync(spawnedMessage);
+            // 다음 지형 변경 Batch가 앞질러 갈 수 없도록 Broadcast 완료까지 Gate를 유지한다.
+            await context.BroadcastAsync(batch);
+
+            foreach (WorldItemSpawnedMessage spawnedMessage in spawnedMessages)
+                await context.BroadcastAsync(spawnedMessage);
+        });
     }
 }

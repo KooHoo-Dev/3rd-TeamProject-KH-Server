@@ -56,8 +56,23 @@ public class Room
     private readonly int logMovesPerSecond; // 룸허브를 통해서 전달 받습니다.
     private readonly GameSession gameSession;
     private readonly PacketDispatcher packetDispatcher;
+    private readonly SemaphoreSlim terrainPipelineGate = new(1, 1);
 
     public bool IsEmpty => members.IsEmpty;
+
+    private async Task ExecuteTerrainCommandAsync(Func<Task> command)
+    {
+        await terrainPipelineGate.WaitAsync();
+
+        try
+        {
+            await command();
+        }
+        finally
+        {
+            terrainPipelineGate.Release();
+        }
+    }
     
     public Room(string code, int logMovesPerSecond)
     {
@@ -127,6 +142,7 @@ public class Room
             gameSession,
             message => SendAsync(member, message),
             message => BroadcastAsync(message),
+            ExecuteTerrainCommandAsync,
             move => LogMove(member, move));
 
         // 토큰에 취소 요청이 없으면 계속 돈다

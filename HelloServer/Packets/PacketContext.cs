@@ -5,6 +5,7 @@ public sealed class PacketContext
 {
     private readonly Func<object, Task> broadcastAsync;
     private readonly Func<object, Task> sendAsync;
+    private readonly Func<Func<Task>, Task> executeTerrainCommandAsync;
     private readonly Action<MoveMessage> moveReceived;
 
     public string RoomCode { get; }
@@ -17,6 +18,7 @@ public sealed class PacketContext
         GameSession gameSession,
         Func<object, Task> sendAsync,
         Func<object, Task> broadcastAsync,
+        Func<Func<Task>, Task> executeTerrainCommandAsync,
         Action<MoveMessage> moveReceived)
     {
         RoomCode = roomCode;
@@ -24,6 +26,7 @@ public sealed class PacketContext
         GameSession = gameSession;
         this.sendAsync = sendAsync;
         this.broadcastAsync = broadcastAsync;
+        this.executeTerrainCommandAsync = executeTerrainCommandAsync;
         this.moveReceived = moveReceived;
     }
 
@@ -35,6 +38,12 @@ public sealed class PacketContext
     public Task BroadcastAsync(object message)
     {
         return broadcastAsync(message);
+    }
+
+    // 지형 Revision 변경과 그 결과 Batch 전송을 방 단위로 순서 보장한다.
+    public Task ExecuteTerrainCommandAsync(Func<Task> command)
+    {
+        return executeTerrainCommandAsync(command);
     }
 
     public void RecordMove(MoveMessage move)
