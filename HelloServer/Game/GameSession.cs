@@ -439,6 +439,10 @@ public sealed class GameSession
         State.Terrain.CellSize = generated.Snapshot.CellSize;
         State.Terrain.OriginX = generated.Snapshot.OriginX;
         State.Terrain.OriginY = generated.Snapshot.OriginY;
+        State.Terrain.SpawnAreaOriginX = generated.Snapshot.SpawnAreaOriginX;
+        State.Terrain.SpawnAreaOriginY = generated.Snapshot.SpawnAreaOriginY;
+        State.Terrain.SpawnAreaWidth = generated.Snapshot.SpawnAreaWidth;
+        State.Terrain.SpawnAreaHeight = generated.Snapshot.SpawnAreaHeight;
         foreach (TerrainCellChangeDto cell in generated.Snapshot.Cells)
         {
             State.Terrain.Cells[cell.Coord] = new TerrainCellRoomState
@@ -462,6 +466,10 @@ public sealed class GameSession
             CellSize = State.Terrain.CellSize,
             OriginX = State.Terrain.OriginX,
             OriginY = State.Terrain.OriginY,
+            SpawnAreaOriginX = State.Terrain.SpawnAreaOriginX,
+            SpawnAreaOriginY = State.Terrain.SpawnAreaOriginY,
+            SpawnAreaWidth = State.Terrain.SpawnAreaWidth,
+            SpawnAreaHeight = State.Terrain.SpawnAreaHeight,
             Cells = State.Terrain.Cells
                 .Select(pair => CreateCellChange(pair.Key, pair.Value))
                 .OrderBy(value => value.Coord)

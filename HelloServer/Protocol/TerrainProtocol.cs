@@ -77,6 +77,10 @@ public sealed class TerrainSnapshotDto
     public float CellSize { get; set; }
     public float OriginX { get; set; }
     public float OriginY { get; set; }
+    public int SpawnAreaOriginX { get; set; }
+    public int SpawnAreaOriginY { get; set; }
+    public int SpawnAreaWidth { get; set; }
+    public int SpawnAreaHeight { get; set; }
     public List<TerrainCellChangeDto> Cells { get; set; } = new();
 }
 

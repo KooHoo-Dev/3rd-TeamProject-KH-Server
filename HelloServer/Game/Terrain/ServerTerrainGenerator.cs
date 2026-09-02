@@ -61,6 +61,10 @@ public sealed class ServerTerrainGenerator
                 CellSize = profile.CellSize,
                 OriginX = profile.OriginX,
                 OriginY = profile.OriginY,
+                SpawnAreaOriginX = profile.SpawnAreaOriginX,
+                SpawnAreaOriginY = profile.SpawnAreaOriginY,
+                SpawnAreaWidth = profile.TopOpeningWidth,
+                SpawnAreaHeight = profile.RespawnAreaHeight,
                 Cells = cells.Values.OrderBy(value => value.Coord).ToList(),
             },
         };

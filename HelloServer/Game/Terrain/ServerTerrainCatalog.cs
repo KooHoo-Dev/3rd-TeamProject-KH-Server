@@ -41,6 +41,8 @@ public sealed class ServerTerrainCatalog
         public int BoundaryThickness { get; init; }
         public int RespawnAreaHeight { get; init; }
         public int MapHeight => Height + RespawnAreaHeight;
+        public int SpawnAreaOriginX => (Width - TopOpeningWidth) / 2;
+        public int SpawnAreaOriginY => Height;
         public int BottomFlatWidth => Math.Max(
             1,
             (int)Math.Round(Width * 0.25f, MidpointRounding.AwayFromZero));

@@ -39,6 +39,10 @@ public sealed class TerrainRoomState
     public float CellSize { get; internal set; } = 1f;
     public float OriginX { get; internal set; }
     public float OriginY { get; internal set; }
+    public int SpawnAreaOriginX { get; internal set; }
+    public int SpawnAreaOriginY { get; internal set; }
+    public int SpawnAreaWidth { get; internal set; }
+    public int SpawnAreaHeight { get; internal set; }
     public ConcurrentDictionary<GridCoord, TerrainCellRoomState> Cells { get; } = new();
 }
 
