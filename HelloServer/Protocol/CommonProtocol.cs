@@ -18,6 +18,9 @@ public static class PacketTypes
     // refactor/server-sync-foundation 클라이언트 계약과 동일한 Type 값입니다.
     public const string MapSession = "map_session";
     public const string TerrainExcavationRequest = "terrain_excavate";
+    public const string TerrainCollapseStartRequest = "terrain_collapse_start";
+    public const string TerrainCollapseStarted = "terrain_collapse_started";
+    public const string TerrainCollapseCancelled = "terrain_collapse_cancelled";
     public const string TerrainCollapsePlacementRequest = "terrain_collapse_place";
     public const string TerrainExcavate = "terrain.excavate";
     public const string TerrainChangeBatch = "terrain_batch";

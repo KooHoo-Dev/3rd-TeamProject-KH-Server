@@ -38,6 +38,31 @@ public sealed class TerrainCollapsePlacementRequest : PacketHeader
     }
 }
 
+public sealed class TerrainCollapseStartRequest : PacketHeader
+{
+    public TerrainCollapseStartRequest()
+    {
+        Type = PacketTypes.TerrainCollapseStartRequest;
+    }
+
+    public List<GridCoord> SourceCells { get; set; } = new();
+
+    public bool IsValid() => SourceCells.Count > 0;
+}
+
+public sealed class TerrainCollapseStartedMessage : PacketHeader
+{
+    public TerrainCollapseStartedMessage()
+    {
+        Type = PacketTypes.TerrainCollapseStarted;
+    }
+
+    public long CollapseID { get; set; }
+    public string OwnerPlayerID { get; set; }
+    public uint StartedRevision { get; set; }
+    public List<GridCoord> SourceCells { get; set; } = new();
+}
+
 public struct TerrainLootEntryDto
 {
     public int ItemID { get; set; }

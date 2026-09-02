@@ -9,6 +9,7 @@ public sealed class GameSession
     private readonly ServerTerrainCatalog terrainCatalog;
     private readonly ServerItemCatalog itemCatalog;
     private long lastDropID;
+    private long lastCollapseID;
 
     public RoomState State { get; } = new();
 
@@ -34,11 +35,27 @@ public sealed class GameSession
         State.Inventory.Players.TryAdd(user.Id, new PlayerInventoryRoomState());
     }
 
-    public void RemovePlayer(string playerId)
+    public bool RemovePlayer(string playerId)
     {
-        State.Players.TryRemove(playerId, out _);
-        State.Exploration.Players.TryRemove(playerId, out _);
-        State.Inventory.Players.TryRemove(playerId, out _);
+        lock (stateGate)
+        {
+            State.Players.TryRemove(playerId, out _);
+            State.Exploration.Players.TryRemove(playerId, out _);
+            State.Inventory.Players.TryRemove(playerId, out _);
+
+            List<long> owned = State.Terrain.PendingCollapses
+                .Where(pair => pair.Value.OwnerPlayerID == playerId)
+                .Select(pair => pair.Key)
+                .ToList();
+            foreach (long collapseID in owned)
+            {
+                PendingCollapseState pending = State.Terrain.PendingCollapses[collapseID];
+                State.Terrain.PendingCollapses.Remove(collapseID);
+                State.Terrain.ReservedCollapseCells.ExceptWith(pending.SourceCells);
+            }
+
+            return owned.Count > 0;
+        }
     }
 
     public void MovePlayer(string playerId, float x, float y)
@@ -135,6 +152,8 @@ public sealed class GameSession
                 return Fail("terrain.invalid_request", "유효하지 않은 채굴 요청입니다.", out errorCode, out errorMessage);
             if (request.ExpectedTerrainRevision != State.Terrain.Revision)
                 return Fail("terrain.revision_mismatch", "지형 Revision이 일치하지 않습니다.", out errorCode, out errorMessage);
+            if (State.Terrain.ReservedCollapseCells.Contains(request.TargetCell))
+                return Fail("terrain.collapse_pending", "낙하 중인 지형은 채굴할 수 없습니다.", out errorCode, out errorMessage);
             if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
                 return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
             if (request.ItemID != player.EquippedPickaxeItemID ||
@@ -191,7 +210,61 @@ public sealed class GameSession
         }
     }
 
+    public bool TryStartCollapse(
+        string playerId,
+        TerrainCollapseStartRequest request,
+        out TerrainCollapseStartedMessage started,
+        out string errorCode,
+        out string errorMessage)
+    {
+        started = null;
+        errorCode = null;
+        errorMessage = null;
+
+        lock (stateGate)
+        {
+            if (request?.IsValid() != true)
+                return Fail("terrain.collapse_invalid", "유효하지 않은 낙하 지형 시작 요청입니다.", out errorCode, out errorMessage);
+
+            HashSet<GridCoord> sourceCells = request.SourceCells.ToHashSet();
+            if (sourceCells.Count != request.SourceCells.Count)
+                return Fail("terrain.collapse_invalid", "낙하 지형 좌표가 중복되었습니다.", out errorCode, out errorMessage);
+
+            foreach (GridCoord sourceCell in sourceCells)
+            {
+                if (State.Terrain.ReservedCollapseCells.Contains(sourceCell))
+                    return Fail("terrain.collapse_pending", "이미 낙하 중인 지형입니다.", out errorCode, out errorMessage);
+                if (State.Terrain.Cells.TryGetValue(sourceCell, out TerrainCellRoomState cell) == false)
+                    return Fail("terrain.collapse_conflict", "낙하 지형 원본 셀이 없습니다.", out errorCode, out errorMessage);
+                if (cell.TileTypeID == (int)ServerTerrainTileType.Bedrock)
+                    return Fail("terrain.collapse_invalid", "기반암은 낙하할 수 없습니다.", out errorCode, out errorMessage);
+            }
+
+            long collapseID = Interlocked.Increment(ref lastCollapseID);
+            PendingCollapseState pending = new()
+            {
+                CollapseID = collapseID,
+                OwnerPlayerID = playerId,
+                StartedRevision = State.Terrain.Revision,
+                SourceCells = sourceCells,
+            };
+            State.Terrain.PendingCollapses.Add(collapseID, pending);
+            State.Terrain.ReservedCollapseCells.UnionWith(sourceCells);
+
+            started = new TerrainCollapseStartedMessage
+            {
+                RequestId = request.RequestId,
+                CollapseID = collapseID,
+                OwnerPlayerID = playerId,
+                StartedRevision = pending.StartedRevision,
+                SourceCells = sourceCells.OrderBy(cell => cell).ToList(),
+            };
+            return true;
+        }
+    }
+
     public bool TryPlaceCollapse(
+        string playerId,
         TerrainCollapsePlacementRequest request,
         out TerrainChangeBatchMessage terrainMessage,
         out string errorCode,
@@ -212,14 +285,12 @@ public sealed class GameSession
                     out errorMessage);
             }
 
-            if (request.ExpectedTerrainRevision != State.Terrain.Revision)
-            {
-                return Fail(
-                    "terrain.revision_mismatch",
-                    "지형 Revision이 일치하지 않습니다.",
-                    out errorCode,
-                    out errorMessage);
-            }
+            if (State.Terrain.PendingCollapses.TryGetValue(
+                    request.CollapseID,
+                    out PendingCollapseState pending) == false)
+                return Fail("terrain.collapse_not_found", "진행 중인 낙하 지형을 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (pending.OwnerPlayerID != playerId)
+                return Fail("terrain.collapse_not_owner", "낙하 지형 확정 권한이 없습니다.", out errorCode, out errorMessage);
 
             HashSet<GridCoord> sourceCells = request.SourceCells.ToHashSet();
             HashSet<GridCoord> targetCells = request.Changes
@@ -235,6 +306,9 @@ public sealed class GameSession
                     out errorCode,
                     out errorMessage);
             }
+
+            if (pending.SourceCells.SetEquals(sourceCells) == false)
+                return Fail("terrain.collapse_invalid", "낙하 지형 원본 셀이 일치하지 않습니다.", out errorCode, out errorMessage);
 
             // 서버에 원본 지형이 아직 존재하는지 확인한다.
             foreach (GridCoord sourceCell in sourceCells)
@@ -348,6 +422,8 @@ public sealed class GameSession
             }
 
             State.Terrain.Revision = baseRevision + 1;
+            State.Terrain.PendingCollapses.Remove(request.CollapseID);
+            State.Terrain.ReservedCollapseCells.ExceptWith(pending.SourceCells);
 
             terrainMessage = new TerrainChangeBatchMessage
             {

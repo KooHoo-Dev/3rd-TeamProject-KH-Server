@@ -44,6 +44,17 @@ public sealed class TerrainRoomState
     public int SpawnAreaWidth { get; internal set; }
     public int SpawnAreaHeight { get; internal set; }
     public ConcurrentDictionary<GridCoord, TerrainCellRoomState> Cells { get; } = new();
+    // GameSession.stateGate 안에서만 접근한다.
+    public Dictionary<long, PendingCollapseState> PendingCollapses { get; } = new();
+    public HashSet<GridCoord> ReservedCollapseCells { get; } = new();
+}
+
+public sealed class PendingCollapseState
+{
+    public long CollapseID { get; init; }
+    public string OwnerPlayerID { get; init; }
+    public uint StartedRevision { get; init; }
+    public HashSet<GridCoord> SourceCells { get; init; } = new();
 }
 
 public sealed class TerrainCellRoomState

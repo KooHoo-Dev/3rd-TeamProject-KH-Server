@@ -10,6 +10,7 @@ public static class PacketDispatcherFactory
             new PlayerMovePacketHandler(),
             new ChatSendPacketHandler(),
             new TerrainExcavationPacketHandler(),
+            new TerrainCollapseStartPacketHandler(),
             new TerrainCollapsePlacementPacketHandler(),
             new WorldItemPickupPacketHandler(),
         });

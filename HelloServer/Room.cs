@@ -318,7 +318,13 @@ public class Room
         try
         {
             members.TryRemove(member.User.Id, out _);
-            gameSession.RemovePlayer(member.User.Id);
+            bool releasedPendingCollapse = false;
+            await ExecuteTerrainCommandAsync(async () =>
+            {
+                releasedPendingCollapse = gameSession.RemovePlayer(member.User.Id);
+                if (releasedPendingCollapse)
+                    await BroadcastAsync(gameSession.CreateTerrainSnapshotMessage());
+            });
             // 퇴장한것을 알려줍니다.
             await BroadcastAsync(new LeaveMessage { Id = member.User.Id }, member.User.Id);
         }
