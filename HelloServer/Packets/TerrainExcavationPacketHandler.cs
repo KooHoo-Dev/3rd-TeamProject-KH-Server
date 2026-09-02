@@ -15,8 +15,11 @@ public sealed class TerrainExcavationPacketHandler : IPacketHandler
         TerrainExcavationRequest request =
             JsonSerializer.Deserialize<TerrainExcavationRequest>(json);
 
-        await context.ExecuteTerrainCommandAsync(async () =>
+        ErrorMessage error = null;
+        bool needsSnapshot = false;
+        await context.ExecuteTerrainCommandAsync(() =>
         {
+            long mutationAt = ServerPerformanceMetrics.Timestamp();
             if (context.GameSession.TryExcavate(
                     context.User.Id,
                     request,
@@ -25,25 +28,27 @@ public sealed class TerrainExcavationPacketHandler : IPacketHandler
                     out string errorCode,
                     out string errorMessage) == false)
             {
-                await context.SendAsync(new ErrorMessage
+                error = new ErrorMessage
                 {
                     RequestId = request?.RequestId,
                     Code = errorCode,
                     Message = errorMessage
-                });
+                };
 
                 if (errorCode == "terrain.revision_mismatch")
-                    await context.SendAsync(
-                        context.GameSession.CreateTerrainSnapshotMessage(request?.RequestId));
+                    needsSnapshot = true;
 
                 return;
             }
-
-            // 다음 지형 변경 Batch가 앞질러 갈 수 없도록 Broadcast 완료까지 Gate를 유지한다.
-            await context.BroadcastAsync(batch);
+            context.EnqueueBroadcast(batch);
 
             foreach (WorldItemSpawnedMessage spawnedMessage in spawnedMessages)
-                await context.BroadcastAsync(spawnedMessage);
+                context.EnqueueBroadcast(spawnedMessage);
+            ServerPerformanceMetrics.Write("TerrainMutation", mutationAt,
+                $" BatchSize={batch.Batch.Changes.Count}");
         });
+
+        if (error != null) await context.SendAsync(error);
+        if (needsSnapshot) await context.SendAsync(context.GameSession.CreateTerrainSnapshotMessage(request?.RequestId));
     }
 }

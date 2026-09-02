@@ -7,16 +7,11 @@ public sealed class TerrainExcavationRequest : PacketHeader
         Type = PacketTypes.TerrainExcavationRequest;
     }
 
-    public long ClientRequestID { get; set; }
     public uint ExpectedTerrainRevision { get; set; }
     public GridCoord TargetCell { get; set; }
     public int ItemID { get; set; }
-    public int DamageAmount { get; set; }
-
-    public bool IsValid()
-    {
-        return ClientRequestID > 0 && DamageAmount > 0;
-    }
+    // 서버 곡괭이 DigPower 사용에 따른 DamageAmount 계약 제거
+    public bool IsValid() => ItemID > 0;
 }
 
 public sealed class TerrainCollapsePlacementRequest : PacketHeader
@@ -127,23 +122,4 @@ public sealed class TerrainSnapshotMessage : PacketHeader
     }
 
     public TerrainSnapshotDto Snapshot { get; set; }
-}
-
-public sealed class ExplorationSnapshotDto
-{
-    public string MapSessionID { get; set; }
-    public string PlayerID { get; set; }
-    public int MapWidth { get; set; }
-    public int MapHeight { get; set; }
-    public List<int> ExploredCellIndices { get; set; } = new();
-}
-
-public sealed class ExplorationSnapshotMessage : PacketHeader
-{
-    public ExplorationSnapshotMessage()
-    {
-        Type = PacketTypes.ExplorationSnapshot;
-    }
-
-    public ExplorationSnapshotDto Snapshot { get; set; }
 }

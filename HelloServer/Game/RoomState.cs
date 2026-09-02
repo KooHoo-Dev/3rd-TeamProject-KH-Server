@@ -8,13 +8,8 @@ public sealed class RoomState
     public ConcurrentDictionary<string, PlayerRoomState> Players { get; } = new();
     public MapSessionRoomState MapSession { get; } = new();
     public TerrainRoomState Terrain { get; } = new();
-    public ExplorationRoomState Exploration { get; } = new();
-
-    // 다음 도메인 구현을 위한 상태 경계입니다. 실제 규칙은 아직 없습니다.
     public InventoryRoomState Inventory { get; } = new();
     public WorldItemRoomState WorldItems { get; } = new();
-    public ShopRoomState Shop { get; } = new();
-    public EconomyRoomState Economy { get; } = new();
 }
 
 public sealed class PlayerRoomState
@@ -43,8 +38,8 @@ public sealed class TerrainRoomState
     public int SpawnAreaOriginY { get; internal set; }
     public int SpawnAreaWidth { get; internal set; }
     public int SpawnAreaHeight { get; internal set; }
-    public ConcurrentDictionary<GridCoord, TerrainCellRoomState> Cells { get; } = new();
     // GameSession.stateGate 안에서만 접근한다.
+    public Dictionary<GridCoord, TerrainCellRoomState> Cells { get; } = new();
     public Dictionary<long, PendingCollapseState> PendingCollapses { get; } = new();
     public HashSet<GridCoord> ReservedCollapseCells { get; } = new();
 }
@@ -65,35 +60,17 @@ public sealed class TerrainCellRoomState
     public List<TerrainLootEntryDto> LootEntries { get; set; } = new();
 }
 
-public sealed class ExplorationRoomState
-{
-    public ConcurrentDictionary<string, PlayerExplorationRoomState> Players { get; } = new();
-}
-
-public sealed class PlayerExplorationRoomState
-{
-    public ConcurrentDictionary<int, byte> ExploredCellIndices { get; } = new();
-}
-
 public sealed class InventoryRoomState
 {
-    public ConcurrentDictionary<string, PlayerInventoryRoomState> Players { get; } = new();
+    public Dictionary<string, PlayerInventoryRoomState> Players { get; } = new();
 }
 
 public sealed class PlayerInventoryRoomState
 {
-    public ConcurrentDictionary<int, int> Quantities { get; } = new();
-}
-
-public sealed class ShopRoomState
-{
-}
-
-public sealed class EconomyRoomState
-{
+    public Dictionary<int, int> Quantities { get; } = new();
 }
 
 public sealed class WorldItemRoomState
 {
-    public ConcurrentDictionary<string, WorldItemDropDto> Drops { get; } = new();
+    public Dictionary<string, WorldItemDropDto> Drops { get; } = new();
 }

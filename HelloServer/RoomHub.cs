@@ -67,8 +67,9 @@ public class RoomHub
     }
 
     // 방을 떠나고, 아무도 없으면 방을 지운다.
-    private void Leave(string code)
+    private async Task LeaveAsync(string code)
     {
+        Room removed = null;
         lock (gate)
         {
             // 예외 처리 한번 해준다
@@ -76,8 +77,10 @@ public class RoomHub
             entry.Users--;
             if (entry.Users > 0) return;
             rooms.Remove(code);
+            removed = entry.Room;
             Console.WriteLine($"[{code}] 아무도 없어서 방을 지움. 총 방의 개수 {rooms.Count}");
         }
+        if (removed != null) await removed.StopAsync();
     }
 
     #endregion
@@ -103,7 +106,7 @@ public class RoomHub
         finally
         {
             // room.HandleAsync는 유저가 퇴장할때 끝납니다.
-            Leave(code);
+            await LeaveAsync(code);
         }
     }
 
@@ -159,6 +162,12 @@ public class RoomHub
         {
             Console.WriteLine($"[RoomHub] Exception: {e.Message}");
         }
+    }
+
+    public void StopAll()
+    {
+        lock (gate)
+            foreach (Entry entry in rooms.Values) entry.Room.Stop();
     }
 
     // 방 코드를 정규화 하는 유틸 함수입니다.

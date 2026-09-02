@@ -15,7 +15,8 @@ public sealed class TerrainCollapseStartPacketHandler : IPacketHandler
         TerrainCollapseStartRequest request =
             JsonSerializer.Deserialize<TerrainCollapseStartRequest>(json);
 
-        await context.ExecuteTerrainCommandAsync(async () =>
+        ErrorMessage error = null;
+        await context.ExecuteTerrainCommandAsync(() =>
         {
             if (context.GameSession.TryStartCollapse(
                     context.User.Id,
@@ -24,16 +25,17 @@ public sealed class TerrainCollapseStartPacketHandler : IPacketHandler
                     out string errorCode,
                     out string errorMessage) == false)
             {
-                await context.SendAsync(new ErrorMessage
+                error = new ErrorMessage
                 {
                     RequestId = request?.RequestId,
                     Code = errorCode,
                     Message = errorMessage,
-                });
+                };
                 return;
             }
 
-            await context.BroadcastAsync(started);
+            context.EnqueueBroadcast(started);
         });
+        if (error != null) await context.SendAsync(error);
     }
 }

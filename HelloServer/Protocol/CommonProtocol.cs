@@ -25,7 +25,6 @@ public static class PacketTypes
     public const string TerrainExcavate = "terrain.excavate";
     public const string TerrainChangeBatch = "terrain_batch";
     public const string TerrainSnapshot = "terrain_snapshot";
-    public const string ExplorationSnapshot = "exploration_snapshot";
 
     public const string WorldItemSpawned = "world_item.spawned";
     public const string WorldItemRemoved = "world_item.removed";

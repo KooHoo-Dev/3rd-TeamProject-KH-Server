@@ -32,7 +32,8 @@ public sealed class GameSession
             Id = user.Id,
             NickName = user.NickName,
         };
-        State.Inventory.Players.TryAdd(user.Id, new PlayerInventoryRoomState());
+        lock (stateGate)
+            State.Inventory.Players.TryAdd(user.Id, new PlayerInventoryRoomState());
     }
 
     public bool RemovePlayer(string playerId)
@@ -40,8 +41,7 @@ public sealed class GameSession
         lock (stateGate)
         {
             State.Players.TryRemove(playerId, out _);
-            State.Exploration.Players.TryRemove(playerId, out _);
-            State.Inventory.Players.TryRemove(playerId, out _);
+            State.Inventory.Players.Remove(playerId);
 
             List<long> owned = State.Terrain.PendingCollapses
                 .Where(pair => pair.Value.OwnerPlayerID == playerId)
@@ -99,14 +99,20 @@ public sealed class GameSession
 
     public TerrainSnapshotMessage CreateTerrainSnapshotMessage(string requestId = null)
     {
+        long startedAt = ServerPerformanceMetrics.Timestamp();
+        long allocatedBefore = ServerPerformanceMetrics.Enabled ? GC.GetAllocatedBytesForCurrentThread() : 0;
+        TerrainSnapshotDto snapshot;
         lock (stateGate)
         {
-            return new TerrainSnapshotMessage
-            {
-                RequestId = requestId,
-                Snapshot = CreateTerrainSnapshot()
-            };
+            // 상태 잠금 안의 변경 가능 데이터 복사와 잠금 밖 DTO 정렬
+            snapshot = CreateTerrainSnapshotUnsafe();
         }
+        snapshot.Cells = snapshot.Cells.OrderBy(value => value.Coord).ToList();
+        ServerPerformanceMetrics.Write("SnapshotBuild", startedAt,
+            ServerPerformanceMetrics.Enabled
+                ? $" SnapshotAllocatedBytes={GC.GetAllocatedBytesForCurrentThread() - allocatedBefore} SnapshotSize={snapshot.Cells.Count}"
+                : "");
+        return new TerrainSnapshotMessage { RequestId = requestId, Snapshot = snapshot };
     }
 
     public WorldItemSnapshotMessage CreateWorldItemSnapshotMessage()
@@ -180,7 +186,7 @@ public sealed class GameSession
             }
             else
             {
-                State.Terrain.Cells.TryRemove(request.TargetCell, out _);
+                State.Terrain.Cells.Remove(request.TargetCell);
                 change = new TerrainCellChangeDto
                 {
                     Coord = request.TargetCell,
@@ -199,7 +205,7 @@ public sealed class GameSession
                 Batch = new TerrainChangeBatchDto
                 {
                     MapSessionID = State.MapSession.Descriptor.MapSessionID,
-                    CollapseID = request.ClientRequestID,
+                    CollapseID = 0,
                     BaseRevision = baseRevision,
                     ResultRevision = State.Terrain.Revision,
                     Changes = new List<TerrainCellChangeDto> { change },
@@ -221,15 +227,18 @@ public sealed class GameSession
         errorCode = null;
         errorMessage = null;
 
+        if (request?.IsValid() != true)
+            return Fail("terrain.collapse_invalid", "유효하지 않은 낙하 지형 시작 요청입니다.", out errorCode, out errorMessage);
+
+        // 서버 상태와 무관한 요청 좌표 중복 검사와 정렬
+        HashSet<GridCoord> sourceCells = request.SourceCells.ToHashSet();
+        if (sourceCells.Count != request.SourceCells.Count)
+            return Fail("terrain.collapse_invalid", "낙하 지형 좌표가 중복되었습니다.", out errorCode, out errorMessage);
+
+        List<GridCoord> orderedSourceCells = sourceCells.OrderBy(cell => cell).ToList();
+
         lock (stateGate)
         {
-            if (request?.IsValid() != true)
-                return Fail("terrain.collapse_invalid", "유효하지 않은 낙하 지형 시작 요청입니다.", out errorCode, out errorMessage);
-
-            HashSet<GridCoord> sourceCells = request.SourceCells.ToHashSet();
-            if (sourceCells.Count != request.SourceCells.Count)
-                return Fail("terrain.collapse_invalid", "낙하 지형 좌표가 중복되었습니다.", out errorCode, out errorMessage);
-
             foreach (GridCoord sourceCell in sourceCells)
             {
                 if (State.Terrain.ReservedCollapseCells.Contains(sourceCell))
@@ -257,7 +266,7 @@ public sealed class GameSession
                 CollapseID = collapseID,
                 OwnerPlayerID = playerId,
                 StartedRevision = pending.StartedRevision,
-                SourceCells = sourceCells.OrderBy(cell => cell).ToList(),
+                SourceCells = orderedSourceCells,
             };
             return true;
         }
@@ -284,6 +293,9 @@ public sealed class GameSession
                     out errorCode,
                     out errorMessage);
             }
+
+            if (request.ExpectedTerrainRevision != State.Terrain.Revision)
+                return Fail("terrain.revision_mismatch", "지형 Revision이 일치하지 않습니다.", out errorCode, out errorMessage);
 
             if (State.Terrain.PendingCollapses.TryGetValue(
                     request.CollapseID,
@@ -391,7 +403,7 @@ public sealed class GameSession
             // 서버의 원본 static 지형을 제거한다.
             foreach (GridCoord sourceCell in sourceCells)
             {
-                State.Terrain.Cells.TryRemove(sourceCell, out _);
+                State.Terrain.Cells.Remove(sourceCell);
 
                 finalChanges[sourceCell] = new TerrainCellChangeDto
                 {
@@ -494,7 +506,7 @@ public sealed class GameSession
             inventory.Quantities[drop.ItemID] = previous + drop.Quantity;
             drop.X = request.X;
             drop.Y = request.Y;
-            State.WorldItems.Drops.TryRemove(drop.DropID, out _);
+            State.WorldItems.Drops.Remove(drop.DropID);
             removedMessage = new WorldItemRemovedMessage
             {
                 RequestId = request.RequestId,
@@ -531,7 +543,7 @@ public sealed class GameSession
         }
     }
 
-    private TerrainSnapshotDto CreateTerrainSnapshot()
+    private TerrainSnapshotDto CreateTerrainSnapshotUnsafe()
     {
         return new TerrainSnapshotDto
         {
@@ -546,10 +558,7 @@ public sealed class GameSession
             SpawnAreaOriginY = State.Terrain.SpawnAreaOriginY,
             SpawnAreaWidth = State.Terrain.SpawnAreaWidth,
             SpawnAreaHeight = State.Terrain.SpawnAreaHeight,
-            Cells = State.Terrain.Cells
-                .Select(pair => CreateCellChange(pair.Key, pair.Value))
-                .OrderBy(value => value.Coord)
-                .ToList(),
+            Cells = State.Terrain.Cells.Select(pair => CreateCellChange(pair.Key, pair.Value)).ToList(),
         };
     }
 
