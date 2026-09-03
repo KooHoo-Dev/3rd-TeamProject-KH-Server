@@ -17,14 +17,12 @@ public sealed class ServerTerrainCatalog
 {
     public sealed class TileDefinition
     {
-        public ServerTerrainTileType Type { get; init; }
         public int MaxDurability { get; init; }
         public bool IsMineable { get; init; }
     }
 
     public sealed class ResourceDefinition
     {
-        public int ResourceID { get; init; }
         public int MaxDurability { get; init; }
         public int DropItemID { get; init; }
         public int DropCount { get; init; }
@@ -102,6 +100,7 @@ public sealed class ServerTerrainCatalog
         public int MaxLength { get; init; }
         public int MinRadius { get; init; }
         public int MaxRadius { get; init; }
+        public int MaxAttempts { get; init; }
     }
 
     private readonly Dictionary<ServerTerrainTileType, TileDefinition> tiles = new();
@@ -136,8 +135,17 @@ public sealed class ServerTerrainCatalog
     public IReadOnlyList<MineralDefinition> GetMinerals(string profileID, string sectionID)
         => minerals.Where(value => value.ProfileID == profileID && value.SectionID == sectionID)
             .OrderBy(value => value.Order).ToArray();
+    // 섹션 순서를 먼저 보고 그 안에서 변이 순서를 봅니다.
+    // 클라이언트가 이 순서로 규칙을 돌기 때문입니다.
+    // 규칙 순서가 곧 난수를 뽑는 순서라 여기가 어긋나면 지형 전체가 달라집니다.
     public IReadOnlyList<VariantDefinition> GetVariants(string profileID)
-        => variants.Where(value => value.ProfileID == profileID).OrderBy(value => value.Order).ToArray();
+        => variants.Where(value => value.ProfileID == profileID)
+            .OrderBy(value => SectionOrderOf(profileID, value.SectionID))
+            .ThenBy(value => value.Order)
+            .ToArray();
+
+    private int SectionOrderOf(string profileID, string sectionID)
+        => sections.First(value => value.ProfileID == profileID && value.SectionID == sectionID).Order;
     public IReadOnlyList<CaveDefinition> GetCaves(string profileID)
         => caves.Where(value => value.ProfileID == profileID).OrderBy(value => value.Order).ToArray();
 
@@ -148,7 +156,6 @@ public sealed class ServerTerrainCatalog
             ServerTerrainTileType type = Enum.Parse<ServerTerrainTileType>(row[0], true);
             tiles.Add(type, new TileDefinition
             {
-                Type = type,
                 MaxDurability = ParseInt(row[2]),
                 IsMineable = ParseBool(row[3]),
             });
@@ -162,7 +169,6 @@ public sealed class ServerTerrainCatalog
             int id = ParseInt(row[0]);
             resources.Add(id, new ResourceDefinition
             {
-                ResourceID = id,
                 MaxDurability = ParseInt(row[2]),
                 DropItemID = ParseInt(row[4]),
                 DropCount = ParseInt(row[5]),
@@ -262,6 +268,7 @@ public sealed class ServerTerrainCatalog
                 MaxLength = ParseInt(row[6]),
                 MinRadius = ParseInt(row[7]),
                 MaxRadius = ParseInt(row[8]),
+                MaxAttempts = ParseInt(row[9]),
             });
         }
     }

@@ -6,13 +6,25 @@ public sealed class ServerGeneratedTerrain
     public TerrainSnapshotDto Snapshot { get; init; }
 }
 
-public sealed class ServerTerrainGenerator
+// 유니티 클라이언트의 지형 생성기를 그대로 옮긴 것입니다.
+//
+// 왜 옮겼나
+// : 서버와 클라이언트가 같은 시드에서 글자 하나까지 같은 지형을 만들어야
+//  서버가 지형 사진(482KB)을 보내지 않아도 됩니다. 보내는 것은 시드뿐입니다.
+//
+// 옮긴 원본 (클라이언트 리포의 Assets/02. Scripts/TerrainCollapse/Generation/)
+// : TerrainTableSeedGenerator, TerrainCaveGenerator,
+//  TerrainVariantClusterGenerator, TerrainMineralClusterGenerator,
+//  TerrainMapConnectivityValidator
+//
+// 고칠 때 지켜야 할 것
+// : 난수를 언제 몇 번 뽑는지가 결과를 정합니다.
+//  순회 순서(y 바깥/x 안쪽 같은 것)와 조건을 보는 순서도 마찬가지입니다.
+//  조건 하나를 앞뒤로 옮기기만 해도 그 뒤의 지형이 전부 달라집니다.
+//  보기 좋게 다듬고 싶어도 그대로 두고, 고쳐야 한다면 양쪽을 함께 고치십시오.
+//  같은지 확인하는 방법은 문서에 적어 두었습니다.
+public sealed partial class ServerTerrainGenerator
 {
-    private static readonly GridCoord[] Directions =
-    {
-        new(-1, 0), new(1, 0), new(0, -1), new(0, 1),
-    };
-
     private readonly ServerTerrainCatalog catalog;
 
     public ServerTerrainGenerator(ServerTerrainCatalog catalog)
@@ -25,20 +37,19 @@ public sealed class ServerTerrainGenerator
         ServerTerrainCatalog.ProfileDefinition profile = catalog.GetProfile(profileID);
         IReadOnlyList<ServerTerrainCatalog.DepthSectionDefinition> sections =
             catalog.GetSections(profileID);
-        Dictionary<GridCoord, TerrainCellChangeDto> cells = new();
+
+        // 모든 단계가 이 난수 하나를 나눠 씁니다. 클라이언트도 같습니다.
         Random random = new(seed);
 
-        FillSections(cells, profile, sections, seed);
-        ApplyBoundaries(cells, profile);
-        ApplyCaves(cells, profile, catalog.GetCaves(profileID), random);
-        int removedFloatingCellCount = RemoveUnsupportedTerrain(cells);
-        ApplyVariants(cells, sections, catalog.GetVariants(profileID), random);
-        ApplyMinerals(cells, profile, sections, random);
-        AttachRespawnArea(cells, profile);
+        MapGrid map = CreateEmptyMap(profile, seed);
+        EllipseShape shape = new(profile);
 
-        if (removedFloatingCellCount > 0)
-            Console.WriteLine(
-                $"[{roomCode}] 초기 지형 안정화: 부유 셀 {removedFloatingCellCount}개 제거");
+        FillSectionTerrain(map, sections, shape);
+        ApplyBoundaries(map, profile, shape);
+        ApplyCaves(map, catalog.GetCaves(profileID), random);
+        ApplyVariants(map, sections, catalog.GetVariants(profileID), random);
+        ApplyMinerals(map, profile, sections, random);
+        AttachRespawnArea(map, profile);
 
         string mapSessionID = $"{roomCode}-{Guid.NewGuid():N}";
         return new ServerGeneratedTerrain
@@ -50,352 +61,65 @@ public sealed class ServerTerrainGenerator
                 Seed = seed,
                 TerrainDataVersion = catalog.DataVersion,
             },
-            Snapshot = new TerrainSnapshotDto
-            {
-                MapSessionID = mapSessionID,
-                Revision = 0,
-                MapWidth = profile.Width,
-                // 리스폰 구조물은 기본 지형 최상단 위에 생성된다.
-                // Snapshot 범위도 함께 확장해야 클라이언트 지형/미니맵에서 잘리지 않는다.
-                MapHeight = profile.MapHeight,
-                CellSize = profile.CellSize,
-                OriginX = profile.OriginX,
-                OriginY = profile.OriginY,
-                SpawnAreaOriginX = profile.SpawnAreaOriginX,
-                SpawnAreaOriginY = profile.SpawnAreaOriginY,
-                SpawnAreaWidth = profile.TopOpeningWidth,
-                SpawnAreaHeight = profile.RespawnAreaHeight,
-                Cells = cells.Values.OrderBy(value => value.Coord).ToList(),
-            },
+            Snapshot = CreateSnapshot(map, profile),
         };
     }
 
-    private void FillSections(
-        Dictionary<GridCoord, TerrainCellChangeDto> cells,
-        ServerTerrainCatalog.ProfileDefinition profile,
-        IReadOnlyList<ServerTerrainCatalog.DepthSectionDefinition> sections,
-        int seed)
-    {
-        for (int y = 0; y < profile.Height; y++)
-        {
-            for (int x = 0; x < profile.Width; x++)
-            {
-                GridCoord coord = new(x, y);
-                if (Contains(profile, coord) == false) continue;
+    #region 결과 만들기
 
-                float ratio = Clamp01(GetDepthRatio(profile.Height, y) + GetBoundaryOffset(profile, x, seed));
-                ServerTerrainCatalog.DepthSectionDefinition section =
-                    sections.FirstOrDefault(value => value.Contains(ratio));
-                if (section == null) continue;
-
-                cells[coord] = CreateCell(coord, section.BaseTileType, 0);
-            }
-        }
-    }
-
-    private void ApplyBoundaries(
-        Dictionary<GridCoord, TerrainCellChangeDto> cells,
+    private TerrainSnapshotDto CreateSnapshot(
+        MapGrid map,
         ServerTerrainCatalog.ProfileDefinition profile)
     {
-        foreach (GridCoord coord in cells.Keys.ToArray())
-        {
-            if (IsTopOpening(profile, coord)) continue;
-            if (IsBoundary(profile, coord) == false) continue;
-            cells[coord] = CreateCell(coord, ServerTerrainTileType.Bedrock, 0);
-        }
-    }
+        List<TerrainCellChangeDto> cells = new();
 
-    private static void ApplyCaves(
-        Dictionary<GridCoord, TerrainCellChangeDto> cells,
-        ServerTerrainCatalog.ProfileDefinition profile,
-        IReadOnlyList<ServerTerrainCatalog.CaveDefinition> caves,
-        Random random)
-    {
-        foreach (ServerTerrainCatalog.CaveDefinition cave in caves)
+        for (int y = 0; y < map.Height; y++)
+        for (int x = 0; x < map.Width; x++)
         {
-            List<GridCoord> starts = cells.Values
-                .Where(cell => cell.TileTypeID != (int)ServerTerrainTileType.Bedrock)
-                .Where(cell =>
-                {
-                    float ratio = GetDepthRatio(profile.Height, cell.Coord.Y);
-                    return ratio >= cave.MinDepthRatio && ratio <= cave.MaxDepthRatio;
-                })
-                .Select(cell => cell.Coord)
-                .ToList();
+            GridCoord coord = new(x, y);
+            ServerTerrainTileType type = map.GetTile(coord);
 
-            for (int index = 0; index < cave.CaveCount && starts.Count > 0; index++)
+            if (type == ServerTerrainTileType.Empty) continue;
+
+            int resourceID = map.GetResource(coord);
+
+            cells.Add(new TerrainCellChangeDto
             {
-                GridCoord cursor = starts[random.Next(starts.Count)];
-                int horizontal = random.Next(2) == 0 ? -1 : 1;
-                int length = random.Next(cave.MinLength, cave.MaxLength + 1);
-                for (int step = 0; step < length; step++)
-                {
-                    int radius = random.Next(cave.MinRadius, cave.MaxRadius + 1);
-                    for (int y = -radius; y <= radius; y++)
-                    {
-                        for (int x = -radius; x <= radius; x++)
-                        {
-                            if (x * x + y * y > radius * radius) continue;
-                            GridCoord target = new(cursor.X + x, cursor.Y + y);
-                            if (cells.TryGetValue(target, out TerrainCellChangeDto cell) == false) continue;
-                            if (cell.TileTypeID == (int)ServerTerrainTileType.Bedrock) continue;
-                            cells.Remove(target);
-                        }
-                    }
-
-                    cursor = new GridCoord(cursor.X + horizontal, cursor.Y + random.Next(-1, 2));
-                }
-            }
+                Coord = coord,
+                TileTypeID = (int)type,
+                Durability = GetMaxDurability(type, resourceID),
+                ResourceID = resourceID,
+                LootEntries = Array.Empty<TerrainLootEntryDto>(),
+            });
         }
-    }
 
-    private void ApplyVariants(
-        Dictionary<GridCoord, TerrainCellChangeDto> cells,
-        IReadOnlyList<ServerTerrainCatalog.DepthSectionDefinition> sections,
-        IReadOnlyList<ServerTerrainCatalog.VariantDefinition> variants,
-        Random random)
-    {
-        foreach (ServerTerrainCatalog.VariantDefinition variant in variants)
+        return new TerrainSnapshotDto
         {
-            ServerTerrainCatalog.DepthSectionDefinition section =
-                sections.First(value => value.SectionID == variant.SectionID);
-            for (int cluster = 0; cluster < variant.ClusterCount; cluster++)
-            {
-                List<GridCoord> candidates = cells.Values
-                    .Where(cell => cell.TileTypeID == (int)section.BaseTileType)
-                    .Select(cell => cell.Coord)
-                    .ToList();
-                if (candidates.Count == 0) break;
-
-                GridCoord center = candidates[random.Next(candidates.Count)];
-                int width = random.Next(variant.MinWidth, variant.MaxWidth + 1);
-                int height = random.Next(variant.MinHeight, variant.MaxHeight + 1);
-                int minX = center.X - width / 2;
-                int minY = center.Y - height / 2;
-                for (int y = 0; y < height; y++)
-                {
-                    for (int x = 0; x < width; x++)
-                    {
-                        GridCoord coord = new(minX + x, minY + y);
-                        if (cells.TryGetValue(coord, out TerrainCellChangeDto current) == false) continue;
-                        if (current.TileTypeID != (int)section.BaseTileType) continue;
-
-                        float nx = (x + 0.5f - width * 0.5f) / (width * 0.5f);
-                        float ny = (y + 0.5f - height * 0.5f) / (height * 0.5f);
-                        if (nx * nx + ny * ny > 1f) continue;
-                        if (random.NextDouble() > variant.FillRatio) continue;
-                        cells[coord] = CreateCell(coord, variant.TileType, 0);
-                    }
-                }
-            }
-        }
+            Revision = 0,
+            MapWidth = map.Width,
+            MapHeight = map.Height,
+            CellSize = profile.CellSize,
+            OriginX = profile.OriginX,
+            OriginY = profile.OriginY,
+            SpawnAreaOriginX = profile.SpawnAreaOriginX,
+            SpawnAreaOriginY = profile.SpawnAreaOriginY,
+            SpawnAreaWidth = profile.TopOpeningWidth,
+            SpawnAreaHeight = profile.RespawnAreaHeight,
+            Cells = cells,
+        };
     }
 
-    /// <summary>
-    /// 동굴 생성으로 기반암과 분리된 지형 그룹을 초기 Snapshot에서 제거한다.
-    /// 클라이언트의 TerrainManager.FindFloatingGroups와 동일하게 4방향 연결을 사용한다.
-    /// </summary>
-    private static int RemoveUnsupportedTerrain(
-        Dictionary<GridCoord, TerrainCellChangeDto> cells)
+    // 자원이 붙은 칸은 자원의 내구도를 씁니다. 클라이언트 GetMaxDurability 와 같습니다.
+    private int GetMaxDurability(ServerTerrainTileType type, int resourceID)
     {
-        HashSet<GridCoord> supported = new();
-        Queue<GridCoord> queue = new();
+        if (type == ServerTerrainTileType.Empty) return 0;
 
-        foreach ((GridCoord coord, TerrainCellChangeDto cell) in cells)
-        {
-            if (cell.TileTypeID != (int)ServerTerrainTileType.Bedrock) continue;
-
-            supported.Add(coord);
-            queue.Enqueue(coord);
-        }
-
-        while (queue.Count > 0)
-        {
-            GridCoord current = queue.Dequeue();
-            foreach (GridCoord direction in Directions)
-            {
-                GridCoord next = new(
-                    current.X + direction.X,
-                    current.Y + direction.Y);
-
-                if (cells.ContainsKey(next) == false || supported.Add(next) == false)
-                    continue;
-
-                queue.Enqueue(next);
-            }
-        }
-
-        List<GridCoord> unsupported = cells.Keys
-            .Where(coord => supported.Contains(coord) == false)
-            .ToList();
-
-        foreach (GridCoord coord in unsupported)
-            cells.Remove(coord);
-
-        return unsupported.Count;
-    }
-
-    private void ApplyMinerals(
-        Dictionary<GridCoord, TerrainCellChangeDto> cells,
-        ServerTerrainCatalog.ProfileDefinition profile,
-        IReadOnlyList<ServerTerrainCatalog.DepthSectionDefinition> sections,
-        Random random)
-    {
-        foreach (ServerTerrainCatalog.DepthSectionDefinition section in sections)
-        {
-            foreach (ServerTerrainCatalog.MineralDefinition mineral in
-                     catalog.GetMinerals(profile.ProfileID, section.SectionID))
-            {
-                List<GridCoord> baseCells = cells.Values
-                    .Where(cell => cell.TileTypeID == (int)section.BaseTileType && cell.ResourceID == 0)
-                    .Select(cell => cell.Coord)
-                    .ToList();
-                foreach (GridCoord start in baseCells)
-                {
-                    if (random.NextDouble() >= mineral.ClusterDensity) continue;
-                    int targetCount = random.Next(mineral.MinClusterSize, mineral.MaxClusterSize + 1);
-                    List<GridCoord> members = new() { start };
-                    SetResource(cells, start, mineral.ResourceID);
-                    while (members.Count < targetCount)
-                    {
-                        List<GridCoord> candidates = new();
-                        foreach (GridCoord member in members)
-                        {
-                            foreach (GridCoord direction in Directions)
-                            {
-                                GridCoord candidate = new(member.X + direction.X, member.Y + direction.Y);
-                                if (candidates.Contains(candidate)) continue;
-                                if (cells.TryGetValue(candidate, out TerrainCellChangeDto cell) == false) continue;
-                                if (cell.TileTypeID != (int)section.BaseTileType || cell.ResourceID != 0) continue;
-                                candidates.Add(candidate);
-                            }
-                        }
-
-                        if (candidates.Count == 0) break;
-                        GridCoord selected = candidates[random.Next(candidates.Count)];
-                        SetResource(cells, selected, mineral.ResourceID);
-                        members.Add(selected);
-                    }
-                }
-            }
-        }
-    }
-
-    private void SetResource(
-        Dictionary<GridCoord, TerrainCellChangeDto> cells,
-        GridCoord coord,
-        int resourceID)
-    {
-        TerrainCellChangeDto cell = cells[coord];
-        if (catalog.TryGetResource(resourceID, out ServerTerrainCatalog.ResourceDefinition resource) == false)
-            return;
-        cell.ResourceID = resourceID;
-        cell.Durability = resource.MaxDurability;
-        cells[coord] = cell;
-    }
-
-    private void AttachRespawnArea(
-        Dictionary<GridCoord, TerrainCellChangeDto> cells,
-        ServerTerrainCatalog.ProfileDefinition profile)
-    {
-        int minX = (profile.Width - profile.TopOpeningWidth) / 2;
-        int maxX = minX + profile.TopOpeningWidth - 1;
-        int minY = profile.Height;
-        int maxY = minY + profile.RespawnAreaHeight - 1;
-        for (int x = minX; x <= maxX; x++)
-            cells[new GridCoord(x, maxY)] = CreateCell(
-                new GridCoord(x, maxY), ServerTerrainTileType.Bedrock, 0);
-        for (int y = minY; y < maxY; y++)
-        {
-            cells[new GridCoord(minX, y)] = CreateCell(
-                new GridCoord(minX, y), ServerTerrainTileType.Bedrock, 0);
-            cells[new GridCoord(maxX, y)] = CreateCell(
-                new GridCoord(maxX, y), ServerTerrainTileType.Bedrock, 0);
-        }
-    }
-
-    private TerrainCellChangeDto CreateCell(
-        GridCoord coord,
-        ServerTerrainTileType type,
-        int resourceID)
-    {
-        int durability = catalog.GetTile(type).MaxDurability;
         if (resourceID > 0 &&
             catalog.TryGetResource(resourceID, out ServerTerrainCatalog.ResourceDefinition resource))
-            durability = resource.MaxDurability;
-        return new TerrainCellChangeDto
-        {
-            Coord = coord,
-            TileTypeID = (int)type,
-            Durability = durability,
-            ResourceID = resourceID,
-            LootEntries = new List<TerrainLootEntryDto>(),
-        };
+            return resource.MaxDurability;
+
+        return catalog.GetTile(type).MaxDurability;
     }
 
-    private static bool Contains(ServerTerrainCatalog.ProfileDefinition profile, GridCoord coord)
-    {
-        if (coord.X < 0 || coord.X >= profile.Width || coord.Y < 0 || coord.Y >= profile.Height)
-            return false;
-        if (coord.Y < profile.BoundaryThickness &&
-            IsInsideCenteredWidth(profile, coord.X, profile.BottomFlatWidth) == false)
-            return false;
-
-        float radiusX = profile.Width * 0.5f;
-        float topRatio = profile.TopOpeningWidth / (float)profile.Width;
-        float bottomRatio = profile.BottomFlatWidth / (float)profile.Width;
-        float topFactor = MathF.Sqrt(1f - topRatio * topRatio);
-        float bottomFactor = MathF.Sqrt(1f - bottomRatio * bottomRatio);
-        float radiusY = profile.Height / (topFactor + bottomFactor);
-        float centerY = -topFactor * radiusY;
-        float centeredX = coord.X + 0.5f - radiusX;
-        float worldY = coord.Y + 0.5f - profile.Height;
-        float heightRatio = coord.Y / (float)(profile.Height - 1);
-        float widthMultiplier = 0.7f + 0.3f * heightRatio;
-        float nx = centeredX / (radiusX * widthMultiplier);
-        float ny = (worldY - centerY) / radiusY;
-        return nx * nx + ny * ny <= 1f;
-    }
-
-    private static bool IsBoundary(ServerTerrainCatalog.ProfileDefinition profile, GridCoord coord)
-    {
-        for (int distance = 1; distance <= profile.BoundaryThickness; distance++)
-        {
-            if (Contains(profile, new GridCoord(coord.X - distance, coord.Y)) == false ||
-                Contains(profile, new GridCoord(coord.X + distance, coord.Y)) == false ||
-                Contains(profile, new GridCoord(coord.X, coord.Y - distance)) == false)
-                return true;
-            GridCoord above = new(coord.X, coord.Y + distance);
-            if (Contains(profile, above) == false &&
-                (above.Y < profile.Height || IsTopOpeningColumn(profile, coord.X) == false))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsTopOpening(ServerTerrainCatalog.ProfileDefinition profile, GridCoord coord)
-        => coord.Y >= profile.Height - profile.BoundaryThickness &&
-           IsTopOpeningColumn(profile, coord.X);
-    private static bool IsTopOpeningColumn(ServerTerrainCatalog.ProfileDefinition profile, int x)
-        => IsInsideCenteredWidth(profile, x, profile.TopOpeningWidth);
-    private static bool IsInsideCenteredWidth(
-        ServerTerrainCatalog.ProfileDefinition profile,
-        int x,
-        int width)
-        => MathF.Abs(x + 0.5f - profile.Width * 0.5f) < width * 0.5f;
-    private static float GetDepthRatio(int height, int y)
-        => height > 1 ? (float)(height - 1 - y) / (height - 1) : 0f;
-    private static float GetBoundaryOffset(
-        ServerTerrainCatalog.ProfileDefinition profile,
-        int x,
-        int seed)
-    {
-        uint hash = unchecked((uint)(seed * 374761393 + x * 668265263));
-        hash = (hash ^ (hash >> 13)) * 1274126177u;
-        float noise = (hash & 0x00FFFFFF) / 16777215f;
-        float centered = noise * (-1f + 2f * noise);
-        return centered * 4f / Math.Max(1, profile.Height - 1);
-    }
-    private static float Clamp01(float value) => Math.Clamp(value, 0f, 1f);
+    #endregion
 }

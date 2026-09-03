@@ -1,7 +1,8 @@
 namespace HelloServer;
 
-// Room을 수정하지 않고 도메인 Handler 구성을 확장하는 등록 지점입니다.
-public static class PacketDispatcherFactory
+// 새 메시지 종류를 만들면 여기 목록에 핸들러를 넣어야 합니다.
+// 빠뜨리면 서버가 그 메시지를 받고도 아무 일도 하지 않습니다.
+public static class PacketHandlerRegistry
 {
     public static PacketDispatcher CreateDefault()
     {

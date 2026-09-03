@@ -16,7 +16,6 @@ public sealed class TerrainExcavationPacketHandler : IPacketHandler
             JsonSerializer.Deserialize<TerrainExcavationRequest>(json);
 
         ErrorMessage error = null;
-        bool needsSnapshot = false;
         await context.ExecuteTerrainCommandAsync(() =>
         {
             long mutationAt = ServerPerformanceMetrics.Timestamp();
@@ -35,9 +34,6 @@ public sealed class TerrainExcavationPacketHandler : IPacketHandler
                     Message = errorMessage
                 };
 
-                if (errorCode == "terrain.revision_mismatch")
-                    needsSnapshot = true;
-
                 return;
             }
             context.EnqueueBroadcast(batch);
@@ -49,6 +45,5 @@ public sealed class TerrainExcavationPacketHandler : IPacketHandler
         });
 
         if (error != null) await context.SendAsync(error);
-        if (needsSnapshot) await context.SendAsync(context.GameSession.CreateTerrainSnapshotMessage(request?.RequestId));
     }
 }

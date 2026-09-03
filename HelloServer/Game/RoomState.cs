@@ -15,7 +15,6 @@ public sealed class RoomState
 public sealed class PlayerRoomState
 {
     public string Id { get; init; }
-    public string NickName { get; init; }
     public float X { get; set; }
     public float Y { get; set; }
     public int EquippedPickaxeItemID { get; set; } = 2; // ID 2: 개발용 곡괭이
@@ -34,10 +33,6 @@ public sealed class TerrainRoomState
     public float CellSize { get; internal set; } = 1f;
     public float OriginX { get; internal set; }
     public float OriginY { get; internal set; }
-    public int SpawnAreaOriginX { get; internal set; }
-    public int SpawnAreaOriginY { get; internal set; }
-    public int SpawnAreaWidth { get; internal set; }
-    public int SpawnAreaHeight { get; internal set; }
     // GameSession.stateGate 안에서만 접근한다.
     public Dictionary<GridCoord, TerrainCellRoomState> Cells { get; } = new();
     public Dictionary<long, PendingCollapseState> PendingCollapses { get; } = new();
@@ -49,6 +44,9 @@ public sealed class PendingCollapseState
     public long CollapseID { get; init; }
     public string OwnerPlayerID { get; init; }
     public uint StartedRevision { get; init; }
+
+    // 시간 초과로 거두기 위한 값입니다. Environment.TickCount64 를 그대로 담습니다.
+    public long StartedAtMilliseconds { get; init; }
     public HashSet<GridCoord> SourceCells { get; init; } = new();
 }
 
@@ -57,7 +55,7 @@ public sealed class TerrainCellRoomState
     public int TileTypeID { get; set; }
     public int Durability { get; set; }
     public int ResourceID { get; set; }
-    public List<TerrainLootEntryDto> LootEntries { get; set; } = new();
+    public TerrainLootEntryDto[] LootEntries { get; set; } = Array.Empty<TerrainLootEntryDto>();
 }
 
 public sealed class InventoryRoomState

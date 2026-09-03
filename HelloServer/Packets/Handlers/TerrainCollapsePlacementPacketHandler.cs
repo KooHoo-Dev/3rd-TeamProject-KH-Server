@@ -13,7 +13,6 @@ public sealed class TerrainCollapsePlacementPacketHandler : IPacketHandler
             JsonSerializer.Deserialize<TerrainCollapsePlacementRequest>(json);
 
         ErrorMessage error = null;
-        bool needsSnapshot = false;
         await context.ExecuteTerrainCommandAsync(() =>
         {
             long mutationAt = ServerPerformanceMetrics.Timestamp();
@@ -21,6 +20,7 @@ public sealed class TerrainCollapsePlacementPacketHandler : IPacketHandler
                     context.User.Id,
                     request,
                     out TerrainChangeBatchMessage batch,
+                    out TerrainCollapseCancelledMessage cancelled,
                     out string errorCode,
                     out string errorMessage) == false)
             {
@@ -31,8 +31,14 @@ public sealed class TerrainCollapsePlacementPacketHandler : IPacketHandler
                     Message = errorMessage,
                 };
 
-                if (RequiresTerrainSnapshot(errorCode))
-                    needsSnapshot = true;
+                // 거절이 곧 그 낙하의 끝입니다. 보낸 사람은 다시 시도하지 않습니다.
+                //
+                // 그래서 오류를 보낸 사람에게 돌려주는 것만으로는 모자랍니다.
+                // 방에 있는 모두가 낙하가 시작될 때 자기 화면에서 원본 칸을 지웠으므로,
+                // 되돌리라고 알려 주지 않으면 그 지형은 모두의 화면에서 사라진 채로 남습니다.
+                //
+                // 오류는 보낸 사람에게만, 취소는 방 전체에 갑니다. 받는 쪽이 다릅니다.
+                if (cancelled != null) context.EnqueueBroadcast(cancelled);
 
                 return;
             }
@@ -42,16 +48,5 @@ public sealed class TerrainCollapsePlacementPacketHandler : IPacketHandler
                 $" BatchSize={batch.Batch.Changes.Count}");
         });
         if (error != null) await context.SendAsync(error);
-        if (needsSnapshot) await context.SendAsync(context.GameSession.CreateTerrainSnapshotMessage(request?.RequestId));
-    }
-
-    private static bool RequiresTerrainSnapshot(string errorCode)
-    {
-        return errorCode switch
-        {
-            // 이후 Batch 적용 불가능이 명확한 Revision 불일치 오류
-            "terrain.revision_mismatch" => true,
-            _ => false
-        };
     }
 }

@@ -1,13 +1,22 @@
 namespace HelloServer;
 
 // Room의 연결 수명과 분리된 서버 권위형 경기 상태 접근 지점입니다.
-public sealed class GameSession
+public sealed partial class GameSession
 {
     private const float MaximumPickupDistance = 3f;
 
+    // 지형과 아이템 표는 방마다 새로 읽을 이유가 없습니다.
+    // 한 번만 읽고 모든 방이 나눠 씁니다. 읽은 뒤로는 아무도 바꾸지 않습니다.
+    //
+    // 방마다 읽으면 파일 7개를 열고 표 전체를 다시 만드는 데 2ms 남짓 듭니다.
+    // 그 시간이 방을 만드는 자물쇠 안에서 흘렀습니다.
+    private static readonly ServerTerrainCatalog terrainCatalog =
+        new(Path.Combine(AppContext.BaseDirectory, "Data", "Terrain"));
+
+    private static readonly ServerItemCatalog itemCatalog =
+        new(Path.Combine(AppContext.BaseDirectory, "Data", "Item", "Items.tsv"));
+
     private readonly object stateGate = new();
-    private readonly ServerTerrainCatalog terrainCatalog;
-    private readonly ServerItemCatalog itemCatalog;
     private long lastDropID;
     private long lastCollapseID;
 
@@ -15,10 +24,6 @@ public sealed class GameSession
 
     public GameSession(string roomCode)
     {
-        string dataRoot = Path.Combine(AppContext.BaseDirectory, "Data", "Terrain");
-        terrainCatalog = new ServerTerrainCatalog(dataRoot);
-        itemCatalog = new ServerItemCatalog(
-            Path.Combine(AppContext.BaseDirectory, "Data", "Item", "Items.tsv"));
         int seed = Random.Shared.Next(1, int.MaxValue);
         ServerGeneratedTerrain generated =
             new ServerTerrainGenerator(terrainCatalog).Generate(roomCode, "Default", seed);
@@ -30,13 +35,21 @@ public sealed class GameSession
         State.Players[user.Id] = new PlayerRoomState
         {
             Id = user.Id,
-            NickName = user.NickName,
         };
         lock (stateGate)
             State.Inventory.Players.TryAdd(user.Id, new PlayerInventoryRoomState());
     }
 
-    public bool RemovePlayer(string playerId)
+    // 나간 사람의 상태를 지우고, 그 사람이 잡아 둔 낙하 예약도 함께 풉니다.
+    //
+    // 취소 메시지를 돌려주는 이유
+    // : 다른 사람 화면에서는 그 칸이 이미 지워져 있습니다.
+    //  낙하가 시작될 때 각자 지웠고, 되살리는 것은 서버의 확정뿐인데
+    //  확정할 사람이 나가 버렸기 때문입니다.
+    //  알려 주지 않으면 그 지형은 모두의 화면에서 사라진 채로 남습니다.
+    //
+    // 풀 것이 없으면 null 을 돌려줍니다.
+    public TerrainCollapseCancelledMessage RemovePlayer(string playerId)
     {
         lock (stateGate)
         {
@@ -46,15 +59,20 @@ public sealed class GameSession
             List<long> owned = State.Terrain.PendingCollapses
                 .Where(pair => pair.Value.OwnerPlayerID == playerId)
                 .Select(pair => pair.Key)
+                .OrderBy(value => value)
                 .ToList();
+            if (owned.Count == 0) return null;
+
+            List<GridCoord> sourceCells = new();
             foreach (long collapseID in owned)
             {
                 PendingCollapseState pending = State.Terrain.PendingCollapses[collapseID];
                 State.Terrain.PendingCollapses.Remove(collapseID);
                 State.Terrain.ReservedCollapseCells.ExceptWith(pending.SourceCells);
+                sourceCells.AddRange(pending.SourceCells);
             }
 
-            return owned.Count > 0;
+            return CreateCollapseCancelledMessageUnsafe(owned, sourceCells);
         }
     }
 
@@ -97,23 +115,6 @@ public sealed class GameSession
         return true;
     }
 
-    public TerrainSnapshotMessage CreateTerrainSnapshotMessage(string requestId = null)
-    {
-        long startedAt = ServerPerformanceMetrics.Timestamp();
-        long allocatedBefore = ServerPerformanceMetrics.Enabled ? GC.GetAllocatedBytesForCurrentThread() : 0;
-        TerrainSnapshotDto snapshot;
-        lock (stateGate)
-        {
-            // 상태 잠금 안의 변경 가능 데이터 복사와 잠금 밖 DTO 정렬
-            snapshot = CreateTerrainSnapshotUnsafe();
-        }
-        snapshot.Cells = snapshot.Cells.OrderBy(value => value.Coord).ToList();
-        ServerPerformanceMetrics.Write("SnapshotBuild", startedAt,
-            ServerPerformanceMetrics.Enabled
-                ? $" SnapshotAllocatedBytes={GC.GetAllocatedBytesForCurrentThread() - allocatedBefore} SnapshotSize={snapshot.Cells.Count}"
-                : "");
-        return new TerrainSnapshotMessage { RequestId = requestId, Snapshot = snapshot };
-    }
 
     public WorldItemSnapshotMessage CreateWorldItemSnapshotMessage()
     {
@@ -136,325 +137,6 @@ public sealed class GameSession
         lock (stateGate)
         {
             return CreateInventorySnapshotUnsafe(playerId, requestId);
-        }
-    }
-
-    public bool TryExcavate(
-        string playerId,
-        TerrainExcavationRequest request,
-        out TerrainChangeBatchMessage terrainMessage,
-        out WorldItemSpawnedMessage[] spawnedMessages,
-        out string errorCode,
-        out string errorMessage)
-    {
-        terrainMessage = null;
-        spawnedMessages = Array.Empty<WorldItemSpawnedMessage>();
-        errorCode = null;
-        errorMessage = null;
-
-        lock (stateGate)
-        {
-            if (request?.IsValid() != true)
-                return Fail("terrain.invalid_request", "유효하지 않은 채굴 요청입니다.", out errorCode, out errorMessage);
-            if (request.ExpectedTerrainRevision != State.Terrain.Revision)
-                return Fail("terrain.revision_mismatch", "지형 Revision이 일치하지 않습니다.", out errorCode, out errorMessage);
-            if (State.Terrain.ReservedCollapseCells.Contains(request.TargetCell))
-                return Fail("terrain.collapse_pending", "낙하 중인 지형은 채굴할 수 없습니다.", out errorCode, out errorMessage);
-            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
-                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
-            if (request.ItemID != player.EquippedPickaxeItemID ||
-                !itemCatalog.TryGetPickaxe(player.EquippedPickaxeItemID, out ServerItemCatalog.PickaxeDefinition pickaxe))
-                return Fail("terrain.invalid_pickaxe", "서버에 장착된 곡괭이와 일치하지 않습니다.", out errorCode, out errorMessage);
-            if (IsWithinDistance(player, request.TargetCell, pickaxe.Range) == false)
-                return Fail("terrain.out_of_range", "채굴 대상이 서버 허용 거리 밖입니다.", out errorCode, out errorMessage);
-            if (State.Terrain.Cells.TryGetValue(request.TargetCell, out TerrainCellRoomState cell) == false)
-                return Fail("terrain.empty_cell", "대상 셀에 지형이 없습니다.", out errorCode, out errorMessage);
-
-            ServerTerrainTileType tileType = (ServerTerrainTileType)cell.TileTypeID;
-            ServerTerrainCatalog.TileDefinition tileDefinition = terrainCatalog.GetTile(tileType);
-            if (tileDefinition.IsMineable == false)
-                return Fail("terrain.not_mineable", "채굴할 수 없는 지형입니다.", out errorCode, out errorMessage);
-
-            uint baseRevision = State.Terrain.Revision;
-            int remaining = Math.Max(0, cell.Durability - pickaxe.DigPower);
-            TerrainCellChangeDto change;
-            List<WorldItemSpawnedMessage> spawned = new();
-            if (remaining > 0)
-            {
-                cell.Durability = remaining;
-                change = CreateCellChange(request.TargetCell, cell);
-            }
-            else
-            {
-                State.Terrain.Cells.Remove(request.TargetCell);
-                change = new TerrainCellChangeDto
-                {
-                    Coord = request.TargetCell,
-                    TileTypeID = (int)ServerTerrainTileType.Empty,
-                    Durability = 0,
-                    ResourceID = 0,
-                    LootEntries = new List<TerrainLootEntryDto>(),
-                };
-                CreateDropsForDestroyedCell(request.TargetCell, cell, request.RequestId, spawned);
-            }
-
-            State.Terrain.Revision = baseRevision + 1;
-            terrainMessage = new TerrainChangeBatchMessage
-            {
-                RequestId = request.RequestId,
-                Batch = new TerrainChangeBatchDto
-                {
-                    MapSessionID = State.MapSession.Descriptor.MapSessionID,
-                    CollapseID = 0,
-                    BaseRevision = baseRevision,
-                    ResultRevision = State.Terrain.Revision,
-                    Changes = new List<TerrainCellChangeDto> { change },
-                },
-            };
-            spawnedMessages = spawned.ToArray();
-            return true;
-        }
-    }
-
-    public bool TryStartCollapse(
-        string playerId,
-        TerrainCollapseStartRequest request,
-        out TerrainCollapseStartedMessage started,
-        out string errorCode,
-        out string errorMessage)
-    {
-        started = null;
-        errorCode = null;
-        errorMessage = null;
-
-        if (request?.IsValid() != true)
-            return Fail("terrain.collapse_invalid", "유효하지 않은 낙하 지형 시작 요청입니다.", out errorCode, out errorMessage);
-
-        // 서버 상태와 무관한 요청 좌표 중복 검사와 정렬
-        HashSet<GridCoord> sourceCells = request.SourceCells.ToHashSet();
-        if (sourceCells.Count != request.SourceCells.Count)
-            return Fail("terrain.collapse_invalid", "낙하 지형 좌표가 중복되었습니다.", out errorCode, out errorMessage);
-
-        List<GridCoord> orderedSourceCells = sourceCells.OrderBy(cell => cell).ToList();
-
-        lock (stateGate)
-        {
-            foreach (GridCoord sourceCell in sourceCells)
-            {
-                if (State.Terrain.ReservedCollapseCells.Contains(sourceCell))
-                    return Fail("terrain.collapse_pending", "이미 낙하 중인 지형입니다.", out errorCode, out errorMessage);
-                if (State.Terrain.Cells.TryGetValue(sourceCell, out TerrainCellRoomState cell) == false)
-                    return Fail("terrain.collapse_conflict", "낙하 지형 원본 셀이 없습니다.", out errorCode, out errorMessage);
-                if (cell.TileTypeID == (int)ServerTerrainTileType.Bedrock)
-                    return Fail("terrain.collapse_invalid", "기반암은 낙하할 수 없습니다.", out errorCode, out errorMessage);
-            }
-
-            long collapseID = Interlocked.Increment(ref lastCollapseID);
-            PendingCollapseState pending = new()
-            {
-                CollapseID = collapseID,
-                OwnerPlayerID = playerId,
-                StartedRevision = State.Terrain.Revision,
-                SourceCells = sourceCells,
-            };
-            State.Terrain.PendingCollapses.Add(collapseID, pending);
-            State.Terrain.ReservedCollapseCells.UnionWith(sourceCells);
-
-            started = new TerrainCollapseStartedMessage
-            {
-                RequestId = request.RequestId,
-                CollapseID = collapseID,
-                OwnerPlayerID = playerId,
-                StartedRevision = pending.StartedRevision,
-                SourceCells = orderedSourceCells,
-            };
-            return true;
-        }
-    }
-
-    public bool TryPlaceCollapse(
-        string playerId,
-        TerrainCollapsePlacementRequest request,
-        out TerrainChangeBatchMessage terrainMessage,
-        out string errorCode,
-        out string errorMessage)
-    {
-        terrainMessage = null;
-        errorCode = null;
-        errorMessage = null;
-
-        lock (stateGate)
-        {
-            if (request?.IsValid() != true)
-            {
-                return Fail(
-                    "terrain.collapse_invalid",
-                    "유효하지 않은 낙하 지형 배치 요청입니다.",
-                    out errorCode,
-                    out errorMessage);
-            }
-
-            if (request.ExpectedTerrainRevision != State.Terrain.Revision)
-                return Fail("terrain.revision_mismatch", "지형 Revision이 일치하지 않습니다.", out errorCode, out errorMessage);
-
-            if (State.Terrain.PendingCollapses.TryGetValue(
-                    request.CollapseID,
-                    out PendingCollapseState pending) == false)
-                return Fail("terrain.collapse_not_found", "진행 중인 낙하 지형을 찾을 수 없습니다.", out errorCode, out errorMessage);
-            if (pending.OwnerPlayerID != playerId)
-                return Fail("terrain.collapse_not_owner", "낙하 지형 확정 권한이 없습니다.", out errorCode, out errorMessage);
-
-            HashSet<GridCoord> sourceCells = request.SourceCells.ToHashSet();
-            HashSet<GridCoord> targetCells = request.Changes
-                .Select(change => change.Coord)
-                .ToHashSet();
-
-            if (sourceCells.Count != request.SourceCells.Count ||
-                targetCells.Count != request.Changes.Count)
-            {
-                return Fail(
-                    "terrain.collapse_invalid",
-                    "낙하 지형 좌표가 중복되었습니다.",
-                    out errorCode,
-                    out errorMessage);
-            }
-
-            if (pending.SourceCells.SetEquals(sourceCells) == false)
-                return Fail("terrain.collapse_invalid", "낙하 지형 원본 셀이 일치하지 않습니다.", out errorCode, out errorMessage);
-
-            // 서버에 원본 지형이 아직 존재하는지 확인한다.
-            foreach (GridCoord sourceCell in sourceCells)
-            {
-                if (!State.Terrain.Cells.TryGetValue(
-                        sourceCell,
-                        out TerrainCellRoomState sourceState))
-                {
-                    return Fail(
-                        "terrain.collapse_conflict",
-                        $"낙하 지형 원본 셀이 없습니다: ({sourceCell.X}, {sourceCell.Y})",
-                        out errorCode,
-                        out errorMessage);
-                }
-
-                if (sourceState.TileTypeID ==
-                    (int)ServerTerrainTileType.Bedrock)
-                {
-                    return Fail(
-                        "terrain.collapse_invalid",
-                        "기반암은 낙하 지형으로 이동할 수 없습니다.",
-                        out errorCode,
-                        out errorMessage);
-                }
-            }
-
-            // 최종 좌표가 맵 내부에 있고 기존 고정 지형과 겹치지 않는지 확인한다.
-            // 원본 영역과 겹치는 것은 제자리 또는 부분 이동일 수 있으므로 허용한다.
-            foreach (TerrainCellChangeDto change in request.Changes)
-            {
-                bool isOutsideMap =
-                    change.Coord.X < 0 ||
-                    change.Coord.X >= State.Terrain.MapWidth ||
-                    change.Coord.Y < 0 ||
-                    change.Coord.Y >= State.Terrain.MapHeight;
-
-                if (isOutsideMap)
-                {
-                    return Fail(
-                        "terrain.collapse_out_of_bounds",
-                        $"낙하 지형 배치 좌표가 맵 밖입니다: " +
-                        $"({change.Coord.X}, {change.Coord.Y})",
-                        out errorCode,
-                        out errorMessage);
-                }
-
-                if (change.TileTypeID ==
-                        (int)ServerTerrainTileType.Empty ||
-                    change.TileTypeID ==
-                        (int)ServerTerrainTileType.Bedrock)
-                {
-                    return Fail(
-                        "terrain.collapse_invalid",
-                        "낙하 지형에 허용되지 않는 타일이 포함되어 있습니다.",
-                        out errorCode,
-                        out errorMessage);
-                }
-
-                bool overlapsStaticTerrain =
-                    !sourceCells.Contains(change.Coord) &&
-                    State.Terrain.Cells.ContainsKey(change.Coord);
-
-                if (overlapsStaticTerrain)
-                {
-                    return Fail(
-                        "terrain.collapse_conflict",
-                        $"낙하 지형이 기존 지형과 겹칩니다: " +
-                        $"({change.Coord.X}, {change.Coord.Y})",
-                        out errorCode,
-                        out errorMessage);
-                }
-            }
-
-            uint baseRevision = State.Terrain.Revision;
-
-            // 같은 좌표가 원본 제거와 최종 배치에 모두 포함될 수 있으므로
-            // 좌표별 Dictionary로 최종 Batch를 구성한다.
-            Dictionary<GridCoord, TerrainCellChangeDto> finalChanges = new();
-
-            // 서버의 원본 static 지형을 제거한다.
-            foreach (GridCoord sourceCell in sourceCells)
-            {
-                State.Terrain.Cells.Remove(sourceCell);
-
-                finalChanges[sourceCell] = new TerrainCellChangeDto
-                {
-                    Coord = sourceCell,
-                    TileTypeID = (int)ServerTerrainTileType.Empty,
-                    Durability = 0,
-                    ResourceID = 0,
-                    LootEntries = new List<TerrainLootEntryDto>(),
-                };
-            }
-
-            // 클라이언트에서 계산한 낙하 완료 위치에 static 지형을 배치한다.
-            foreach (TerrainCellChangeDto change in request.Changes)
-            {
-                TerrainCellRoomState placedCell = new()
-                {
-                    TileTypeID = change.TileTypeID,
-                    Durability = change.Durability,
-                    ResourceID = change.ResourceID,
-                    LootEntries =
-                        change.LootEntries?.ToList() ??
-                        new List<TerrainLootEntryDto>(),
-                };
-
-                State.Terrain.Cells[change.Coord] = placedCell;
-                finalChanges[change.Coord] =
-                    CreateCellChange(change.Coord, placedCell);
-            }
-
-            State.Terrain.Revision = baseRevision + 1;
-            State.Terrain.PendingCollapses.Remove(request.CollapseID);
-            State.Terrain.ReservedCollapseCells.ExceptWith(pending.SourceCells);
-
-            terrainMessage = new TerrainChangeBatchMessage
-            {
-                RequestId = request.RequestId,
-                Batch = new TerrainChangeBatchDto
-                {
-                    MapSessionID =
-                        State.MapSession.Descriptor.MapSessionID,
-                    CollapseID = request.CollapseID,
-                    BaseRevision = baseRevision,
-                    ResultRevision = State.Terrain.Revision,
-                    Changes = finalChanges.Values
-                        .OrderBy(change => change.Coord.Y)
-                        .ThenBy(change => change.Coord.X)
-                        .ToList(),
-                },
-            };
-
-            return true;
         }
     }
 
@@ -527,10 +209,6 @@ public sealed class GameSession
         State.Terrain.CellSize = generated.Snapshot.CellSize;
         State.Terrain.OriginX = generated.Snapshot.OriginX;
         State.Terrain.OriginY = generated.Snapshot.OriginY;
-        State.Terrain.SpawnAreaOriginX = generated.Snapshot.SpawnAreaOriginX;
-        State.Terrain.SpawnAreaOriginY = generated.Snapshot.SpawnAreaOriginY;
-        State.Terrain.SpawnAreaWidth = generated.Snapshot.SpawnAreaWidth;
-        State.Terrain.SpawnAreaHeight = generated.Snapshot.SpawnAreaHeight;
         foreach (TerrainCellChangeDto cell in generated.Snapshot.Cells)
         {
             State.Terrain.Cells[cell.Coord] = new TerrainCellRoomState
@@ -538,29 +216,11 @@ public sealed class GameSession
                 TileTypeID = cell.TileTypeID,
                 Durability = cell.Durability,
                 ResourceID = cell.ResourceID,
-                LootEntries = cell.LootEntries?.ToList() ?? new List<TerrainLootEntryDto>(),
+                LootEntries = cell.LootEntries ?? Array.Empty<TerrainLootEntryDto>(),
             };
         }
     }
 
-    private TerrainSnapshotDto CreateTerrainSnapshotUnsafe()
-    {
-        return new TerrainSnapshotDto
-        {
-            MapSessionID = State.MapSession.Descriptor.MapSessionID,
-            Revision = State.Terrain.Revision,
-            MapWidth = State.Terrain.MapWidth,
-            MapHeight = State.Terrain.MapHeight,
-            CellSize = State.Terrain.CellSize,
-            OriginX = State.Terrain.OriginX,
-            OriginY = State.Terrain.OriginY,
-            SpawnAreaOriginX = State.Terrain.SpawnAreaOriginX,
-            SpawnAreaOriginY = State.Terrain.SpawnAreaOriginY,
-            SpawnAreaWidth = State.Terrain.SpawnAreaWidth,
-            SpawnAreaHeight = State.Terrain.SpawnAreaHeight,
-            Cells = State.Terrain.Cells.Select(pair => CreateCellChange(pair.Key, pair.Value)).ToList(),
-        };
-    }
 
     private InventorySnapshotMessage CreateInventorySnapshotUnsafe(
         string playerId,
@@ -623,32 +283,6 @@ public sealed class GameSession
         {
             RequestId = requestId,
             Drop = CloneDrop(drop),
-        };
-    }
-
-    private bool IsWithinDistance(
-        PlayerRoomState player,
-        GridCoord coord,
-        float maximumDistance)
-    {
-        float x = State.Terrain.OriginX + (coord.X + 0.5f) * State.Terrain.CellSize;
-        float y = State.Terrain.OriginY + (coord.Y + 0.5f) * State.Terrain.CellSize;
-        float dx = player.X - x;
-        float dy = player.Y - y;
-        return dx * dx + dy * dy <= maximumDistance * maximumDistance;
-    }
-
-    private static TerrainCellChangeDto CreateCellChange(
-        GridCoord coord,
-        TerrainCellRoomState cell)
-    {
-        return new TerrainCellChangeDto
-        {
-            Coord = coord,
-            TileTypeID = cell.TileTypeID,
-            Durability = cell.Durability,
-            ResourceID = cell.ResourceID,
-            LootEntries = cell.LootEntries?.ToList() ?? new List<TerrainLootEntryDto>(),
         };
     }
 

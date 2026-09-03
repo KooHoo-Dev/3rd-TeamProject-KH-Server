@@ -36,8 +36,23 @@ public class RoomHub
     #region 방 관리 함수들(찾기, 지우기)
 
     // 방을 먼저 찾아보고, 없다면 만든다.
-    private Room Enter(string code)
+    //
+    // 방을 만드는 일은 자물쇠 밖에서 한다.
+    // 지형을 만드는 데 20ms 가까이 걸리는데, 그동안 자물쇠를 쥐고 있으면
+    // 초당 10번 도는 위치 방송이 이 방뿐 아니라 다른 방까지 통째로 멈춘다.
+    private async Task<Room> EnterAsync(string code)
     {
+        lock (gate)
+        {
+            if (rooms.TryGetValue(code, out Entry found))
+            {
+                found.Users++;
+                return found.Room;
+            }
+        }
+
+        Room created = new Room(code, logMovesPerSecond);
+        Room discarded = null;
         // lock(매개변수)?
         // : 해당 영역에 들어갈 수 있는 녀석들은. gate를 참조하고있는
         //  녀석들만 들어올 수 있습니다. 다른 녀석을 못들어옴.
@@ -53,17 +68,25 @@ public class RoomHub
         //  잠글 수 있음)
         lock (gate)
         {
-            if (rooms.TryGetValue(code, out Entry entry) == false)
+            if (rooms.TryGetValue(code, out Entry entry))
             {
-                entry = new Entry()
-                    {Room = new Room(code, logMovesPerSecond), Users = 0};
+                // 내가 만드는 사이에 다른 사람이 먼저 만들었다. 내 것은 버린다.
+                discarded = created;
+                created = entry.Room;
+            }
+            else
+            {
+                entry = new Entry() { Room = created, Users = 0 };
                 rooms.Add(code, entry);
                 Console.WriteLine($"[{code}] 방을 열었다. 총 방의 개수 : {rooms.Count}");
             }
 
             entry.Users++;
-            return entry.Room;
         }
+
+        if (discarded != null) await discarded.StopAsync();
+
+        return created;
     }
 
     // 방을 떠나고, 아무도 없으면 방을 지운다.
@@ -91,7 +114,7 @@ public class RoomHub
     public async Task HandleAsync(string code, 
         WebSocket socket, CancellationToken token)
     {
-        Room room = Enter(code);
+        Room room = await EnterAsync(code);
         // lastId를 여러 접속자가 동시에 수정 할수 있으므로
         // Interlocked를 이용해서 락을 걸어줍니다.
         // 이것도 외워버리십쇼.
