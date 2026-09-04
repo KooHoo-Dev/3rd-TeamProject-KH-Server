@@ -52,6 +52,7 @@ public sealed partial class GameSession
             Id = user.Id,
             CurrentHealth = playerConfig.InitialHealth,
             MaxHealth = playerConfig.MaxHealth,
+            IsDebugMode = debugMode,
         };
         lock (stateGate)
         {
@@ -93,7 +94,7 @@ public sealed partial class GameSession
 
     private static bool IsClientReportedDamageType(string damageType)
     {
-        return damageType is "Fall" or "FallingChunk" or "Burial";
+        return damageType is "Fall" or "FallingChunk" or "Burial" or "Debug";
     }
 
     // stateGate 안에서만 호출한다.
@@ -107,7 +108,8 @@ public sealed partial class GameSession
     {
         changedMessage = null;
         diedMessage = null;
-        if (player.IsDead || IsInSpawnAreaUnsafe(player.X, player.Y))
+        if (player.IsDead ||
+            (damageType != "Debug" && IsInSpawnAreaUnsafe(player.X, player.Y)))
             return false;
 
         player.CurrentHealth = Math.Max(0, player.CurrentHealth - amount);
@@ -194,13 +196,15 @@ public sealed partial class GameSession
 
         if (request?.IsValid() != true ||
             IsClientReportedDamageType(request?.DamageType) == false ||
-            request.Amount > MaximumReportedDamage)
+            (request.DamageType != "Debug" && request.Amount > MaximumReportedDamage))
             return Fail("player.invalid_damage", "유효하지 않은 피해 요청입니다.", out errorCode, out errorMessage);
 
         lock (stateGate)
         {
             if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
                 return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (request.DamageType == "Debug" && player.IsDebugMode == false)
+                return Fail("player.debug_not_enabled", "개발 피해는 DebugMode에서만 사용할 수 있습니다.", out errorCode, out errorMessage);
 
             long now = Environment.TickCount64;
             if (lastDamageRequestAtMilliseconds.TryGetValue(playerId, out long previous) &&
@@ -216,7 +220,7 @@ public sealed partial class GameSession
 
             if (TryApplyPlayerDamageUnsafe(
                     player,
-                    request.Amount,
+                    request.DamageType == "Debug" ? player.CurrentHealth : request.Amount,
                     request.DamageType,
                     request.RequestId,
                     out changedMessage,

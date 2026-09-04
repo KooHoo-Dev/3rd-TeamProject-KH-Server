@@ -21,6 +21,7 @@ public sealed class PlayerRoomState
     public int CurrentHealth { get; set; }
     public int MaxHealth { get; set; }
     public bool IsDead { get; set; }
+    public bool IsDebugMode { get; init; }
     public float DeathX { get; set; }
     public float DeathY { get; set; }
     public int EquippedPickaxeItemID { get; set; } = 2; // ID 2: 개발용 곡괭이

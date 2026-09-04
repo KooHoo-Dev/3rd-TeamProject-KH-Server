@@ -26,12 +26,18 @@ public sealed partial class GameSession
             if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
                 return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
 
-            GridCoord deathCell = new(
-                (int)Math.Floor((player.X - State.Terrain.OriginX) / State.Terrain.CellSize),
-                (int)Math.Floor((player.Y - State.Terrain.OriginY) / State.Terrain.CellSize));
-            if (deathCell.X < 0 || deathCell.X >= State.Terrain.MapWidth ||
-                deathCell.Y < 0 || deathCell.Y >= State.Terrain.MapHeight)
+            int deathCellX = (int)Math.Floor(
+                (player.X - State.Terrain.OriginX) / State.Terrain.CellSize);
+            int deathCellY = (int)Math.Floor(
+                (player.Y - State.Terrain.OriginY) / State.Terrain.CellSize);
+            if (deathCellX < 0 || deathCellX >= State.Terrain.MapWidth)
                 return Fail("terrain.invalid_death_loot", "사망 위치가 맵 범위 밖입니다.", out errorCode, out errorMessage);
+
+            // 스폰 영역은 맵 최상단 바깥에 있으므로, 그곳에서 사망한 보관함은
+            // 보이는 맵의 가장 가까운 행에 만든다. 아래로 이탈한 경우도 동일하다.
+            GridCoord deathCell = new(
+                deathCellX,
+                Math.Clamp(deathCellY, 0, State.Terrain.MapHeight - 1));
             if (State.Terrain.ReservedCollapseCells.Contains(deathCell))
                 return Fail("terrain.collapse_pending", "낙하 중인 위치에는 사망 보관함을 만들 수 없습니다.", out errorCode, out errorMessage);
             if (State.Terrain.Cells.TryGetValue(deathCell, out TerrainCellRoomState existing) &&
