@@ -10,6 +10,7 @@ public sealed class RoomState
     public TerrainRoomState Terrain { get; } = new();
     public InventoryRoomState Inventory { get; } = new();
     public WorldItemRoomState WorldItems { get; } = new();
+    public DynamiteRoomState Dynamites { get; } = new();
 }
 
 public sealed class PlayerRoomState
@@ -38,6 +39,10 @@ public sealed class TerrainRoomState
     public float CellSize { get; internal set; } = 1f;
     public float OriginX { get; internal set; }
     public float OriginY { get; internal set; }
+    public int SpawnAreaOriginX { get; internal set; }
+    public int SpawnAreaOriginY { get; internal set; }
+    public int SpawnAreaWidth { get; internal set; }
+    public int SpawnAreaHeight { get; internal set; }
     // GameSession.stateGate 안에서만 접근한다.
     public Dictionary<GridCoord, TerrainCellRoomState> Cells { get; } = new();
     public Dictionary<long, PendingCollapseState> PendingCollapses { get; } = new();
@@ -79,4 +84,29 @@ public sealed class PlayerInventoryRoomState
 public sealed class WorldItemRoomState
 {
     public Dictionary<string, WorldItemDropDto> Drops { get; } = new();
+}
+
+public sealed class DynamiteRoomState
+{
+    // GameSession.stateGate 안에서만 접근
+    public Dictionary<string, PendingDynamiteState> Projectiles { get; } = new();
+}
+
+public sealed class PendingDynamiteState
+{
+    public string ProjectileID { get; init; }
+    public string OwnerPlayerID { get; init; }
+    public int ItemID { get; init; }
+
+    public float StartX { get; init; }
+    public float StartY { get; init; }
+    public float DirectionX { get; init; }
+    public float DirectionY { get; init; }
+
+    public long StartedAtUnixMilliseconds { get; init; }
+
+    public float ThrowSpeed { get; init; }
+    public float FuseTime { get; init; }
+    public float ExplosionRadius { get; init; }
+    public int ExplosionPower { get; init; }
 }

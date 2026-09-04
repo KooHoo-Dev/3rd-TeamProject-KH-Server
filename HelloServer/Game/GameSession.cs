@@ -7,6 +7,7 @@ public sealed partial class GameSession
     private const float MaximumDropDistance = 3f;
     private const float RespawnMovementDistance = 0.25f;
     private const long ManualDropPickupDelayMilliseconds = 2_000;
+    private const float MaximumDynamiteStartDistance = 1.5f;
     private const int DebugGoldItemID = 100;
     private const int DebugDynamiteItemID = 1;
     private const int DebugItemQuantity = 1_000;
@@ -29,6 +30,7 @@ public sealed partial class GameSession
     private readonly object stateGate = new();
     private long lastDropID;
     private long lastCollapseID;
+    private long lastDynamiteProjectileID;
 
     public RoomState State { get; } = new();
 
@@ -135,7 +137,10 @@ public sealed partial class GameSession
             float dx = x - player.DeathX;
             float dy = y - player.DeathY;
             if (dx * dx + dy * dy >= RespawnMovementDistance * RespawnMovementDistance)
+            {
                 player.IsDead = false;
+                player.CurrentHealth = player.MaxHealth;
+            }
         }
     }
 
@@ -309,6 +314,244 @@ public sealed partial class GameSession
         }
     }
 
+    public bool TryThrowDynamite(
+        string playerID,
+        DynamiteThrowRequest request,
+        out DynamiteThrownMessage thrownMessage,
+        out InventorySnapshotMessage inventoryMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        thrownMessage = null;
+        inventoryMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        lock (stateGate)
+        {
+            if (request?.IsValid() != true)
+            {
+                return Fail(
+                    "dynamite.invalid_request",
+                    "유효하지 않은 다이너마이트 사용 요청입니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            if (State.Players.TryGetValue(playerID, out PlayerRoomState player) == false)
+            {
+                return Fail(
+                    "player.not_found",
+                    "플레이어 상태를 찾을 수 없습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            if (player.IsDead)
+            {
+                return Fail(
+                    "player.dead",
+                    "사망 상태에서는 다이너마이트를 사용할 수 없습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            if (ServerDynamiteCatalog.TryGet(
+                    request.ItemID,
+                    out ServerDynamiteCatalog.DynamiteDefinition dynamite) == false)
+            {
+                return Fail(
+                    "dynamite.invalid_item",
+                    "서버에 등록되지 않은 다이너마이트입니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            if (State.Inventory.Players.TryGetValue(
+                    playerID,
+                    out PlayerInventoryRoomState inventory) == false)
+            {
+                return Fail(
+                    "inventory.not_found",
+                    "플레이어 인벤토리를 찾을 수 없습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            int ownedQuantity = inventory.Quantities.GetValueOrDefault(request.ItemID);
+            if (ownedQuantity <= 0)
+            {
+                return Fail(
+                    "inventory.insufficient",
+                    "다이너마이트 수량이 부족합니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            float startDeltaX = request.StartX - player.X;
+            float startDeltaY = request.StartY - player.Y;
+
+            if (startDeltaX * startDeltaX + startDeltaY * startDeltaY >
+                MaximumDynamiteStartDistance * MaximumDynamiteStartDistance)
+            {
+                return Fail(
+                    "dynamite.invalid_start",
+                    "다이너마이트 시작 위치가 플레이어와 너무 멉니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            float directionLengthSqr =
+                request.DirectionX * request.DirectionX +
+                request.DirectionY * request.DirectionY;
+
+            if (directionLengthSqr < 0.0001f)
+            {
+                return Fail(
+                    "dynamite.invalid_direction",
+                    "다이너마이트 방향이 올바르지 않습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            float directionLength = MathF.Sqrt(directionLengthSqr);
+            float directionX = request.DirectionX / directionLength;
+            float directionY = request.DirectionY / directionLength;
+
+            int remainingQuantity = ownedQuantity - 1;
+
+            if (remainingQuantity == 0) inventory.Quantities.Remove(request.ItemID);
+            else inventory.Quantities[request.ItemID] = remainingQuantity;
+
+            string projectileID = $"dynamite-{Interlocked.Increment(ref lastDynamiteProjectileID)}";
+
+            long startedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            PendingDynamiteState projectile = new()
+            {
+                ProjectileID = projectileID,
+                OwnerPlayerID = playerID,
+                ItemID = request.ItemID,
+                StartX = request.StartX,
+                StartY = request.StartY,
+                DirectionX = directionX,
+                DirectionY = directionY,
+                StartedAtUnixMilliseconds = startedAtUnixMilliseconds,
+                ThrowSpeed = dynamite.ThrowSpeed,
+                FuseTime = dynamite.FuseTime,
+                ExplosionRadius = dynamite.ExplosionRadius,
+                ExplosionPower = dynamite.ExplosionPower,
+            };
+
+            State.Dynamites.Projectiles.Add(projectileID, projectile);
+
+            thrownMessage = new DynamiteThrownMessage
+            {
+                RequestId = request.RequestId,
+                ProjectileID = projectileID,
+                OwnerPlayerID = playerID,
+                ItemID = request.ItemID,
+                StartX = projectile.StartX,
+                StartY = projectile.StartY,
+                DirectionX = projectile.DirectionX,
+                DirectionY = projectile.DirectionY,
+                StartedAtUnixMilliseconds = projectile.StartedAtUnixMilliseconds,
+                ThrowSpeed = dynamite.ThrowSpeed,
+                FuseTime = dynamite.FuseTime,
+                ExplosionRadius = dynamite.ExplosionRadius,
+            };
+
+            inventoryMessage = CreateInventorySnapshotUnsafe(
+                playerID,
+                request.RequestId);
+
+            return true;
+        }
+    }
+
+    public bool TryAcceptDynamiteExplosion(
+        string playerID,
+        DynamiteExplodeRequest request,
+        out PendingDynamiteState projectile,
+        out string errorCode,
+        out string errorMessage)
+    {
+        projectile = null;
+        errorCode = null;
+        errorMessage = null;
+
+        lock (stateGate)
+        {
+            if (request?.IsValid() != true)
+            {
+                return Fail(
+                    "dynamite.invalid_explode_request",
+                    "유효하지 않은 다이너마이트 폭발 요청입니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            if (State.Dynamites.Projectiles.TryGetValue(
+                    request.ProjectileID,
+                    out PendingDynamiteState pending) == false)
+            {
+                return Fail(
+                    "dynamite.not_found",
+                    "진행 중인 다이너마이트를 찾을 수 없습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            if (pending.OwnerPlayerID != playerID)
+            {
+                return Fail(
+                    "dynamite.not_owner",
+                    "다른 플레이어의 다이너마이트는 폭발시킬 수 없습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            long elapsedMilliseconds =
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() -
+                pending.StartedAtUnixMilliseconds;
+
+            long minimumFuseMilliseconds =
+                (long)(pending.FuseTime * 1000f) - 150;
+
+            if (elapsedMilliseconds < minimumFuseMilliseconds)
+            {
+                return Fail(
+                    "dynamite.fuse_pending",
+                    "다이너마이트 퓨즈가 아직 끝나지 않았습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            float deltaX = request.X - pending.StartX;
+            float deltaY = request.Y - pending.StartY;
+
+            // 기존 물리의 튕김을 완전히 예측하지는 않지만 순간이동 수준의 비정상 좌표는 막음
+            float maximumTravelDistance =
+                pending.ThrowSpeed * pending.FuseTime * 2f;
+
+            if (deltaX * deltaX + deltaY * deltaY >
+                maximumTravelDistance * maximumTravelDistance)
+            {
+                return Fail(
+                    "dynamite.invalid_position",
+                    "다이너마이트 폭발 위치가 허용 범위를 벗어났습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            // 한 번 승인된 투사체는 다시 폭발 요청 불가
+            State.Dynamites.Projectiles.Remove(request.ProjectileID);
+
+            projectile = pending;
+            return true;
+        }
+    }
+
     private void SetGeneratedTerrain(ServerGeneratedTerrain generated)
     {
         State.MapSession.Descriptor = generated.Session;
@@ -318,6 +561,10 @@ public sealed partial class GameSession
         State.Terrain.CellSize = generated.Snapshot.CellSize;
         State.Terrain.OriginX = generated.Snapshot.OriginX;
         State.Terrain.OriginY = generated.Snapshot.OriginY;
+        State.Terrain.SpawnAreaOriginX = generated.Snapshot.SpawnAreaOriginX;
+        State.Terrain.SpawnAreaOriginY = generated.Snapshot.SpawnAreaOriginY;
+        State.Terrain.SpawnAreaWidth = generated.Snapshot.SpawnAreaWidth;
+        State.Terrain.SpawnAreaHeight = generated.Snapshot.SpawnAreaHeight;
         foreach (TerrainCellChangeDto cell in generated.Snapshot.Cells)
         {
             State.Terrain.Cells[cell.Coord] = new TerrainCellRoomState

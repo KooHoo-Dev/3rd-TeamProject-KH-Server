@@ -31,6 +31,12 @@ public static class PacketTypes
     public const string WorldItemPickup = "world_item.pickup";
     public const string WorldItemDrop = "world_item.drop";
     public const string WorldItemSnapshot = "world_item.snapshot";
+
+    public const string DynamiteThrow = "dynamite.throw";
+    public const string DynamiteThrown = "dynamite.thrown";
+    public const string DynamiteExplodeRequest = "dynamite.explode_request";
+    public const string DynamiteExploded = "dynamite.exploded";
+
     public const string InventorySnapshot = "inventory.snapshot";
     public const string TerrainDeathLootRequest = "terrain_death_loot";
     public const string Error = "error";

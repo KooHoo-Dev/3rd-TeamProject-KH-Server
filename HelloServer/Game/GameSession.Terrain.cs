@@ -21,8 +21,8 @@ public sealed partial class GameSession
                 return Fail("terrain.invalid_death_loot", "유효하지 않은 사망 보관함 요청입니다.", out errorCode, out errorMessage);
             if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
                 return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
-            if (player.IsDead)
-                return Fail("player.already_dead", "이미 사망 보관함을 생성했습니다.", out errorCode, out errorMessage);
+            if (player.IsDead == false)
+                return Fail("player.not_dead", "사망 상태에서만 사망 보관함을 만들 수 있습니다.", out errorCode, out errorMessage);
             if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
                 return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
 
@@ -82,6 +82,41 @@ public sealed partial class GameSession
             inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
             return true;
         }
+    }
+
+    private List<GridCoord> GetCellsInExplosionRadius(float worldX, float worldY, float radius)
+    {
+        List<GridCoord> cells = new();
+
+        int centerX = (int)Math.Floor((worldX - State.Terrain.OriginX) / State.Terrain.CellSize);
+        int centerY = (int)Math.Floor((worldY - State.Terrain.OriginY) / State.Terrain.CellSize);
+        int cellRadius = (int)Math.Ceiling(radius / State.Terrain.CellSize);
+        float radiusSqr = radius * radius;
+
+        for (int x = centerX - cellRadius; x <= centerX + cellRadius; x++)
+        {
+            for (int y = centerY - cellRadius; y <= centerY + cellRadius; y++)
+            {
+                if (x < 0 || x >= State.Terrain.MapWidth ||
+                    y < 0 || y >= State.Terrain.MapHeight)
+                    continue;
+
+                float cellCenterX = State.Terrain.OriginX + (x + 0.5f) * State.Terrain.CellSize;
+                float cellCenterY = State.Terrain.OriginY + (y + 0.5f) * State.Terrain.CellSize;
+
+                float dx = cellCenterX - worldX;
+                float dy = cellCenterY - worldY;
+
+                if (dx * dx + dy * dy <= radiusSqr)
+                    cells.Add(new GridCoord(x, y));
+            }
+        }
+
+        // 기존 로컬 폭발 코드처럼 위쪽 타일부터 처리
+        return cells
+            .OrderByDescending(cell => cell.Y)
+            .ThenBy(cell => cell.X)
+            .ToList();
     }
 
     // 굴착은 칸 하나짜리 독립 연산이라 Revision 을 대조하지 않습니다.
@@ -168,6 +203,223 @@ public sealed partial class GameSession
             spawnedMessages = spawned.ToArray();
             return true;
         }
+    }
+
+    /// <summary>
+    /// 서버가 승인한 다이너마이트 폭발을 지형 변경으로 확정한다.
+    /// 폭발 범위의 모든 변경은 Revision 하나와 terrain_batch 하나로 묶는다.
+    /// </summary>
+    public bool TryExplodeDynamiteTerrain(
+        PendingDynamiteState projectile,
+        float worldX,
+        float worldY,
+        string requestId,
+        out TerrainChangeBatchMessage terrainMessage,
+        out WorldItemSpawnedMessage[] spawnedMessages)
+    {
+        terrainMessage = null;
+        spawnedMessages = Array.Empty<WorldItemSpawnedMessage>();
+
+        if (projectile == null ||
+            float.IsFinite(worldX) == false ||
+            float.IsFinite(worldY) == false)
+            return false;
+
+        lock (stateGate)
+        {
+            List<GridCoord> targetCells = GetCellsInExplosionRadiusUnsafe(
+                worldX,
+                worldY,
+                projectile.ExplosionRadius);
+            List<TerrainCellChangeDto> changes = new();
+            List<WorldItemSpawnedMessage> spawned = new();
+
+            foreach (GridCoord coord in targetCells)
+            {
+                // 낙하 청크로 예약된 칸은 해당 청크의 배치 요청만 변경할 수 있다.
+                if (State.Terrain.ReservedCollapseCells.Contains(coord))
+                    continue;
+
+                if (State.Terrain.Cells.TryGetValue(
+                        coord,
+                        out TerrainCellRoomState cell) == false)
+                    continue;
+
+                ServerTerrainTileType tileType =
+                    (ServerTerrainTileType)cell.TileTypeID;
+                ServerTerrainCatalog.TileDefinition tileDefinition =
+                    terrainCatalog.GetTile(tileType);
+
+                if (tileDefinition.IsMineable == false)
+                    continue;
+
+                int remaining = Math.Max(0, cell.Durability - projectile.ExplosionPower);
+
+                if (remaining > 0)
+                {
+                    cell.Durability = remaining;
+                    changes.Add(CreateCellChange(coord, cell));
+                    continue;
+                }
+
+                State.Terrain.Cells.Remove(coord);
+                changes.Add(new TerrainCellChangeDto
+                {
+                    Coord = coord,
+                    TileTypeID = (int)ServerTerrainTileType.Empty,
+                    Durability = 0,
+                    ResourceID = 0,
+                    LootEntries = Array.Empty<TerrainLootEntryDto>(),
+                });
+                CreateDropsForDestroyedCell(coord, cell, requestId, spawned);
+            }
+
+            if (changes.Count > 0)
+            {
+                uint baseRevision = State.Terrain.Revision;
+                State.Terrain.Revision = baseRevision + 1;
+                terrainMessage = new TerrainChangeBatchMessage
+                {
+                    RequestId = requestId,
+                    Batch = new TerrainChangeBatchDto
+                    {
+                        MapSessionID = State.MapSession.Descriptor.MapSessionID,
+                        CollapseID = 0,
+                        BaseRevision = baseRevision,
+                        ResultRevision = State.Terrain.Revision,
+                        Changes = changes,
+                    },
+                };
+            }
+
+            spawnedMessages = spawned.ToArray();
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 서버 좌표로 폭발 반경 안의 플레이어 체력을 확정한다.
+    /// 지형과 달리 체력은 각 플레이어마다 별도 메시지로 전달한다.
+    /// </summary>
+    public void ApplyDynamiteExplosionDamage(
+        PendingDynamiteState projectile,
+        float worldX,
+        float worldY,
+        string requestId,
+        out PlayerHealthChangedMessage[] healthChangedMessages,
+        out PlayerDiedMessage[] diedMessages)
+    {
+        healthChangedMessages = Array.Empty<PlayerHealthChangedMessage>();
+        diedMessages = Array.Empty<PlayerDiedMessage>();
+
+        if (projectile == null || projectile.ExplosionPower <= 0)
+            return;
+
+        lock (stateGate)
+        {
+            float radiusSqr = projectile.ExplosionRadius * projectile.ExplosionRadius;
+            List<PlayerHealthChangedMessage> changed = new();
+            List<PlayerDiedMessage> died = new();
+
+            foreach (PlayerRoomState player in State.Players.Values)
+            {
+                if (player.IsDead || IsInSpawnAreaUnsafe(player.X, player.Y))
+                    continue;
+
+                float deltaX = player.X - worldX;
+                float deltaY = player.Y - worldY;
+                if (deltaX * deltaX + deltaY * deltaY > radiusSqr)
+                    continue;
+
+                player.CurrentHealth = Math.Max(
+                    0,
+                    player.CurrentHealth - projectile.ExplosionPower);
+
+                PlayerHealthStateDto state = CreatePlayerHealthState(player);
+                changed.Add(new PlayerHealthChangedMessage
+                {
+                    RequestId = requestId,
+                    Player = state,
+                    DamageType = "Explosion",
+                });
+
+                if (player.CurrentHealth > 0)
+                    continue;
+
+                player.IsDead = true;
+                player.DeathX = player.X;
+                player.DeathY = player.Y;
+
+                // 사망 상태를 바꾼 뒤의 값을 죽음 메시지에도 담는다.
+                died.Add(new PlayerDiedMessage
+                {
+                    RequestId = requestId,
+                    Player = CreatePlayerHealthState(player),
+                });
+            }
+
+            healthChangedMessages = changed.ToArray();
+            diedMessages = died.ToArray();
+        }
+    }
+
+    // stateGate 안에서만 호출
+    private List<GridCoord> GetCellsInExplosionRadiusUnsafe(
+        float worldX,
+        float worldY,
+        float radius)
+    {
+        int centerX = (int)Math.Floor(
+            (worldX - State.Terrain.OriginX) / State.Terrain.CellSize);
+        int centerY = (int)Math.Floor(
+            (worldY - State.Terrain.OriginY) / State.Terrain.CellSize);
+        int cellRadius = (int)Math.Ceiling(
+            radius / State.Terrain.CellSize);
+        float radiusSqr = radius * radius;
+        List<GridCoord> cells = new();
+
+        for (int x = centerX - cellRadius; x <= centerX + cellRadius; x++)
+        {
+            for (int y = centerY - cellRadius; y <= centerY + cellRadius; y++)
+            {
+                if (x < 0 || x >= State.Terrain.MapWidth ||
+                    y < 0 || y >= State.Terrain.MapHeight)
+                    continue;
+
+                float cellCenterX = State.Terrain.OriginX +
+                                    (x + 0.5f) * State.Terrain.CellSize;
+                float cellCenterY = State.Terrain.OriginY +
+                                    (y + 0.5f) * State.Terrain.CellSize;
+                float deltaX = cellCenterX - worldX;
+                float deltaY = cellCenterY - worldY;
+
+                if (deltaX * deltaX + deltaY * deltaY <= radiusSqr)
+                    cells.Add(new GridCoord(x, y));
+            }
+        }
+
+        return cells
+            .OrderByDescending(cell => cell.Y)
+            .ThenBy(cell => cell.X)
+            .ToList();
+    }
+
+    private bool IsInSpawnAreaUnsafe(float worldX, float worldY)
+    {
+        if (State.Terrain.SpawnAreaWidth <= 0 ||
+            State.Terrain.SpawnAreaHeight <= 0 ||
+            State.Terrain.CellSize <= 0f)
+            return false;
+
+        int cellX = (int)Math.Floor(
+            (worldX - State.Terrain.OriginX) / State.Terrain.CellSize);
+        int cellY = (int)Math.Floor(
+            (worldY - State.Terrain.OriginY) / State.Terrain.CellSize);
+
+        return cellX >= State.Terrain.SpawnAreaOriginX &&
+               cellX < State.Terrain.SpawnAreaOriginX + State.Terrain.SpawnAreaWidth &&
+               cellY >= State.Terrain.SpawnAreaOriginY &&
+               cellY < State.Terrain.SpawnAreaOriginY + State.Terrain.SpawnAreaHeight;
     }
 
     public bool TryStartCollapse(

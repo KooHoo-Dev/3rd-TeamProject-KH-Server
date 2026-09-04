@@ -16,6 +16,8 @@ public static class PacketHandlerRegistry
             new TerrainCollapsePlacementPacketHandler(),
             new WorldItemPickupPacketHandler(),
             new WorldItemDropPacketHandler(),
+            new DynamiteThrowPacketHandler(),
+            new DynamiteExplodePacketHandler(),
         });
     }
 }
