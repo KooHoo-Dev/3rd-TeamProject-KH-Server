@@ -8,6 +8,13 @@ public sealed class LobbyRoomInfo
     public bool IsStarted { get; init; }
     public int MaxPlayers { get; init; }
     public List<string> Players { get; init; } = new();
+    public List<LobbyPlayerInfo> PlayerDetails { get; init; } = new(); // 로비 슬롯 렌더링용 서버 확정 입장 순서
+}
+
+public sealed class LobbyPlayerInfo
+{
+    public string ClientID { get; init; }
+    public string NickName { get; init; }
 }
 
 public class LobbyCreateRequest

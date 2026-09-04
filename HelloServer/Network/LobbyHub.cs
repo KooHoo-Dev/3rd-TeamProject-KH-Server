@@ -17,7 +17,7 @@ public sealed class LobbyHub
         public string HostClientId;
         public bool IsStarted;
         public DateTime LastTouchedUtc;
-        public Dictionary<string, string> Players { get; } = new();
+        public List<LobbyPlayerInfo> Players { get; } = new();  // 로비 화면과 동기화되는 순서, 호스트가 항상 0번
         public Dictionary<string, WebSocket> Members { get; } = new();
     }
 
@@ -132,7 +132,7 @@ public sealed class LobbyHub
                 HostToken = Guid.NewGuid().ToString("N"),
                 LastTouchedUtc = DateTime.UtcNow,
             };
-            lobby.Players.Add(clientId, nickName);
+            lobby.Players.Add(new LobbyPlayerInfo { ClientID = clientId, NickName = nickName });
             lobbies.Add(code, lobby);
             Console.WriteLine($"[{code}] 대기방 생성");
             return true;
@@ -150,8 +150,11 @@ public sealed class LobbyHub
             SweepExpiredUnsafe();
             if (lobbies.TryGetValue(code, out Lobby lobby) == false) { error = "room.not_found"; return false; }
             if (lobby.IsStarted) { error = "room.already_started"; return false; }
-            if (lobby.Players.ContainsKey(clientId) == false && lobby.Players.Count >= MaximumPlayers) { error = "room.full"; return false; }
-            lobby.Players[clientId] = nickName;
+            string requestedClientId = clientId;
+            LobbyPlayerInfo existing = lobby.Players.Find(player => player.ClientID == requestedClientId);
+            if (existing == null && lobby.Players.Count >= MaximumPlayers) { error = "room.full"; return false; }
+            if (existing == null)
+                lobby.Players.Add(new LobbyPlayerInfo { ClientID = clientId, NickName = nickName });
             lobby.LastTouchedUtc = DateTime.UtcNow;
             return true;
         }
@@ -161,7 +164,8 @@ public sealed class LobbyHub
     {
         lock (gate)
         {
-            if (lobbies.TryGetValue(code, out Lobby lobby) == false || lobby.IsStarted || lobby.Players.ContainsKey(clientId) == false)
+            if (lobbies.TryGetValue(code, out Lobby lobby) == false || lobby.IsStarted ||
+                lobby.Players.Exists(player => player.ClientID == clientId) == false)
                 return false;
             lobby.Members[clientId] = socket;
             lobby.LastTouchedUtc = DateTime.UtcNow;
@@ -192,7 +196,7 @@ public sealed class LobbyHub
             if (lobby.Members.TryGetValue(clientId, out WebSocket current) && current == socket) lobby.Members.Remove(clientId);
             if (lobby.IsStarted == false)
             {
-                lobby.Players.Remove(clientId);
+                lobby.Players.RemoveAll(player => player.ClientID == clientId);
                 if (lobby.Players.Count == 0) lobbies.Remove(code);
             }
             lobby.LastTouchedUtc = DateTime.UtcNow;
@@ -227,7 +231,9 @@ public sealed class LobbyHub
     private static LobbyRoomInfo ToInfo(string code, Lobby lobby) => new()
     {
         RoomCode = code, HostClientID = lobby.HostClientId, IsStarted = lobby.IsStarted,
-        MaxPlayers = MaximumPlayers, Players = lobby.Players.Values.OrderBy(name => name, StringComparer.Ordinal).ToList(),
+        MaxPlayers = MaximumPlayers,
+        Players = lobby.Players.Select(player => player.NickName).ToList(),
+        PlayerDetails = new List<LobbyPlayerInfo>(lobby.Players),
     };
 
     private static bool TryNormalizePlayer(string clientId, string nickName, out string normalizedClientId, out string normalizedNickName, out string error)
