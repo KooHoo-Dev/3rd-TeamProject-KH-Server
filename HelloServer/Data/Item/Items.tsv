@@ -1,7 +1,7 @@
-ID	Name	Description	Price	ItemType	PrefabKey	SpriteKey	PickaxeRange	DigPower	ExplosionRadius	ExplosionPower
-0	PickAxe	기본 지급되는 곡괭이.	0	Pickaxe	PickAxe	PickAxe_Thumbnail	1	1	0	0
-1	Dynamite	강력한 폭발물. 절대 사람을 향해 던지지 말자.	12	Dynamite	Dynamite	Dynamite_Thumbnail	0	0	4	3
-2	DebugPickAxe	개발자용 곡괭이.	0	Pickaxe	PickAxe	PickAxe_Thumbnail	100	100	0	0
-100	Gold	골드	0	Gold	Gold	Gold_Thumbnail	0	0	0	0
-101	Coal	석탄	5	Exchange	CoalItem	Coal_Thumbnail	0	0	0	0
-102	IronOre	철광석	10	Exchange	IronOreItem	IronOre_Thumbnail	0	0	0	0
+ID	Name	Description	Price	ItemType	PrefabKey	SpriteKey	PickaxeRange	DigPower	Weight
+0	PickAxe	기본 지급되는 곡괭이.	0	Pickaxe	PickAxe	PickAxe_Thumbnail	1	1	0
+1	Dynamite	강력한 폭발물. 절대 사람을 향해 던지지 말자.	12	Usable	Dynamite	Dynamite_Thumbnail	0	0	1
+2	DebugPickAxe	개발자용 곡괭이.	0	Pickaxe	PickAxe	PickAxe_Thumbnail	100	100	0
+100	Gold	골드	0	Gold	Gold	Gold_Thumbnail	0	0	0
+101	Coal	석탄	5	Exchange	CoalItem	Coal_Thumbnail	0	0	1
+102	IronOre	철광석	10	Exchange	IronOreItem	IronOre_Thumbnail	0	0	2

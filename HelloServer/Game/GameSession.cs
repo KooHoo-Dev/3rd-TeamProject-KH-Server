@@ -6,6 +6,7 @@ public sealed partial class GameSession
     private const float MaximumPickupDistance = 3f;
     private const float MaximumDropDistance = 3f;
     private const float RespawnMovementDistance = 0.25f;
+    private const long ManualDropPickupDelayMilliseconds = 2_000;
 
     // 지형과 아이템 표는 방마다 새로 읽을 이유가 없습니다.
     // 한 번만 읽고 모든 방이 나눠 씁니다. 읽은 뒤로는 아무도 바꾸지 않습니다.
@@ -170,6 +171,8 @@ public sealed partial class GameSession
                 return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
             if (State.WorldItems.Drops.TryGetValue(request.DropID, out WorldItemDropDto drop) == false)
                 return Fail("item.not_found", "이미 획득되었거나 존재하지 않는 아이템입니다.", out errorCode, out errorMessage);
+            if (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() < drop.PickupAvailableAtUnixMilliseconds)
+                return Fail("item.pickup_cooldown", "버린 아이템은 잠시 뒤에 획득할 수 있습니다.", out errorCode, out errorMessage);
 
             if (!float.IsFinite(request.X) || !float.IsFinite(request.Y))
                 return Fail("item.invalid_position", "아이템 좌표가 유효하지 않습니다.", out errorCode, out errorMessage);
@@ -193,6 +196,8 @@ public sealed partial class GameSession
             int previous = inventory.Quantities.GetValueOrDefault(drop.ItemID);
             if (previous > int.MaxValue - drop.Quantity)
                 return Fail("inventory.overflow", "아이템 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
+            if (CanAddInventoryWeight(inventory, drop.ItemID, drop.Quantity) == false)
+                return Fail("inventory.overweight", "인벤토리 무게 한도를 초과했습니다.", out errorCode, out errorMessage);
 
             inventory.Quantities[drop.ItemID] = previous + drop.Quantity;
             drop.X = request.X;
@@ -253,7 +258,9 @@ public sealed partial class GameSession
                 request.Quantity,
                 request.X,
                 request.Y,
-                request.RequestId);
+                request.RequestId,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() +
+                ManualDropPickupDelayMilliseconds);
             inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
             return true;
         }
@@ -301,7 +308,38 @@ public sealed partial class GameSession
             RequestId = requestId,
             PlayerID = playerId,
             Items = items,
+            CurrentWeight = GetInventoryWeight(inventory),
+            MaxWeight = inventory?.MaxWeight ?? 0,
         };
+    }
+
+    private bool CanAddInventoryWeight(
+        PlayerInventoryRoomState inventory,
+        int itemID,
+        int quantity)
+    {
+        if (quantity <= 0 || itemCatalog.TryGetItem(itemID, out ServerItemCatalog.ItemDefinition item) == false)
+            return false;
+
+        long total = (long)GetInventoryWeight(inventory) + (long)item.Weight * quantity;
+        return total <= inventory.MaxWeight;
+    }
+
+    private int GetInventoryWeight(PlayerInventoryRoomState inventory)
+    {
+        if (inventory == null) return 0;
+
+        long total = 0;
+        foreach ((int itemID, int quantity) in inventory.Quantities)
+        {
+            if (quantity <= 0 || itemCatalog.TryGetItem(itemID, out ServerItemCatalog.ItemDefinition item) == false)
+                continue;
+
+            total += (long)item.Weight * quantity;
+            if (total >= int.MaxValue) return int.MaxValue;
+        }
+
+        return (int)total;
     }
 
     private void CreateDropsForDestroyedCell(
@@ -342,7 +380,8 @@ public sealed partial class GameSession
         int quantity,
         float x,
         float y,
-        string requestId)
+        string requestId,
+        long pickupAvailableAtUnixMilliseconds = 0)
     {
         WorldItemDropDto drop = new()
         {
@@ -351,6 +390,7 @@ public sealed partial class GameSession
             Quantity = quantity,
             X = x,
             Y = y,
+            PickupAvailableAtUnixMilliseconds = pickupAvailableAtUnixMilliseconds,
         };
         State.WorldItems.Drops[drop.DropID] = drop;
         return new WorldItemSpawnedMessage
@@ -369,6 +409,7 @@ public sealed partial class GameSession
             Quantity = drop.Quantity,
             X = drop.X,
             Y = drop.Y,
+            PickupAvailableAtUnixMilliseconds = drop.PickupAvailableAtUnixMilliseconds,
         };
     }
 

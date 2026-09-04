@@ -68,6 +68,9 @@ public sealed class InventoryRoomState
 
 public sealed class PlayerInventoryRoomState
 {
+    // 현재 클라이언트 PlayerInventory의 기본 한도와 같은 값입니다.
+    // 플레이어별 장비/스탯 한도가 생기면 이 값을 접속 시점에 설정합니다.
+    public int MaxWeight { get; init; } = 1000;
     public Dictionary<int, int> Quantities { get; } = new();
 }
 

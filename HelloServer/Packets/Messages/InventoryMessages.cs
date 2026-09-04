@@ -15,6 +15,8 @@ public sealed class InventorySnapshotMessage : PacketHeader
 
     public string PlayerID { get; set; }
     public InventoryItemDto[] Items { get; set; }
+    public int CurrentWeight { get; set; }
+    public int MaxWeight { get; set; }
 }
 
 public sealed class WorldItemDropDto
@@ -24,6 +26,7 @@ public sealed class WorldItemDropDto
     public int Quantity { get; set; }
     public float X { get; set; }
     public float Y { get; set; }
+    public long PickupAvailableAtUnixMilliseconds { get; set; }
 }
 
 public sealed class WorldItemSpawnedMessage : PacketHeader
