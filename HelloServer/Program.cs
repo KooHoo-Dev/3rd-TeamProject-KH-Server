@@ -50,6 +50,31 @@ public class Program
         app.UseWebSockets();
         app.MapGet("/ping", () => "pong");
 
+        app.MapPost("/rooms", (LobbyCreateRequest request) =>
+        {
+            if (hub.TryCreateLobby(request?.ClientID, request?.NickName,
+                    out LobbyCreateResponse response, out string error))
+                return Results.Ok(response);
+            return Results.BadRequest(new { Code = error });
+        });
+        app.MapPost("/rooms/{code}/join", (string code, LobbyJoinRequest request) =>
+        {
+            if (hub.TryJoinLobby(code, request?.ClientID, request?.NickName,
+                    out LobbyRoomInfo room, out string error))
+                return Results.Ok(room);
+            return Results.BadRequest(new { Code = error });
+        });
+        app.MapGet("/rooms/{code}", (string code) =>
+            hub.TryGetLobby(code, out LobbyRoomInfo room)
+                ? Results.Ok(room)
+                : Results.NotFound(new { Code = "room.not_found" }));
+        app.MapPost("/rooms/{code}/start", (string code, LobbyStartRequest request) =>
+        {
+            if (hub.TryStartLobby(code, request?.HostToken, out LobbyRoomInfo room, out string error))
+                return Results.Ok(room);
+            return Results.BadRequest(new { Code = error });
+        });
+
         // 방으로 들어오는 문
         // 여기서 await하는 동안 그 사람의 연결이 살아있습니다.
         // 여기서 hub.HandleAsync => room.HandleAsync를 호출하여
@@ -75,6 +100,12 @@ public class Program
             {
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 await context.Response.WriteAsync("방코드 해석 불가능");
+                return;
+            }
+            if (hub.IsGameRoomOpen(code) == false)
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsync("호스트가 게임을 시작한 대기방에만 입장할 수 있습니다.");
                 return;
             }
             

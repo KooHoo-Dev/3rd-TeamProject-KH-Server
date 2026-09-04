@@ -7,6 +7,10 @@ namespace HelloServer;
 
 public class RoomHub
 {
+    public const int MinimumLobbyPlayers = 2;
+    public const int MaximumLobbyPlayers = 4;
+    private const int LobbyCodeLength = 6;
+
     // 방 하나와 그 방에 들어가겠다고 한 사람의 수
     // 방을 만들기 전에(방을 찾은 뒤) 실제로 방이 생성 될때까지는
     // 시간이 조금 걸립니다. 그 사이에 어떤 유저가 나가게되면
@@ -19,6 +23,17 @@ public class RoomHub
     }
 
     private readonly Dictionary<string, Entry> rooms = new();
+
+    private sealed class LobbyEntry
+    {
+        public string HostToken;
+        public bool IsStarted;
+        public DateTime LastTouchedUtc;
+        public Dictionary<string, string> Players { get; } = new();
+    }
+
+    // WebSocket 게임 Room과 분리된, 시작 전 로비 상태입니다.
+    private readonly Dictionary<string, LobbyEntry> lobbies = new();
 
     private readonly int broadcastPerSecond;
     private readonly int logMovesPerSecond;
@@ -34,6 +49,166 @@ public class RoomHub
     }
 
     #region 방 관리 함수들(찾기, 지우기)
+
+    public bool TryCreateLobby(string clientId, string nickName,
+        out LobbyCreateResponse response, out string error)
+    {
+        response = null;
+        error = null;
+        if (TryNormalizeLobbyPlayer(clientId, nickName, out clientId, out nickName, out error) == false)
+            return false;
+
+        lock (gate)
+        {
+            SweepExpiredLobbiesUnsafe();
+            string code;
+            do { code = CreateLobbyCodeUnsafe(); }
+            while (lobbies.ContainsKey(code) || rooms.ContainsKey(code));
+
+            LobbyEntry entry = new()
+            {
+                HostToken = Guid.NewGuid().ToString("N"),
+                LastTouchedUtc = DateTime.UtcNow,
+            };
+            entry.Players.Add(clientId, nickName);
+            lobbies.Add(code, entry);
+            response = new LobbyCreateResponse
+            {
+                Room = CreateLobbyInfoUnsafe(code, entry),
+                HostToken = entry.HostToken,
+            };
+            Console.WriteLine($"[{code}] 대기방 생성");
+            return true;
+        }
+    }
+
+    public bool TryJoinLobby(string rawCode, string clientId, string nickName,
+        out LobbyRoomInfo room, out string error)
+    {
+        room = null;
+        error = null;
+        string code = Normalize(rawCode);
+        if (string.IsNullOrEmpty(code)) { error = "room.invalid_code"; return false; }
+        if (TryNormalizeLobbyPlayer(clientId, nickName, out clientId, out nickName, out error) == false)
+            return false;
+
+        lock (gate)
+        {
+            SweepExpiredLobbiesUnsafe();
+            if (lobbies.TryGetValue(code, out LobbyEntry entry) == false)
+            {
+                error = "room.not_found";
+                return false;
+            }
+            if (entry.IsStarted) { error = "room.already_started"; return false; }
+            if (entry.Players.ContainsKey(clientId) == false && entry.Players.Count >= MaximumLobbyPlayers)
+            {
+                error = "room.full";
+                return false;
+            }
+
+            entry.Players[clientId] = nickName;
+            entry.LastTouchedUtc = DateTime.UtcNow;
+            room = CreateLobbyInfoUnsafe(code, entry);
+            return true;
+        }
+    }
+
+    public bool TryGetLobby(string rawCode, out LobbyRoomInfo room)
+    {
+        room = null;
+        string code = Normalize(rawCode);
+        if (string.IsNullOrEmpty(code)) return false;
+        lock (gate)
+        {
+            SweepExpiredLobbiesUnsafe();
+            if (lobbies.TryGetValue(code, out LobbyEntry entry) == false) return false;
+            entry.LastTouchedUtc = DateTime.UtcNow;
+            room = CreateLobbyInfoUnsafe(code, entry);
+            return true;
+        }
+    }
+
+    public bool TryStartLobby(string rawCode, string hostToken,
+        out LobbyRoomInfo room, out string error)
+    {
+        room = null;
+        error = null;
+        string code = Normalize(rawCode);
+        if (string.IsNullOrEmpty(code)) { error = "room.invalid_code"; return false; }
+        lock (gate)
+        {
+            if (lobbies.TryGetValue(code, out LobbyEntry entry) == false)
+            {
+                error = "room.not_found";
+                return false;
+            }
+            if (entry.HostToken != hostToken) { error = "room.host_only"; return false; }
+            if (entry.Players.Count < MinimumLobbyPlayers)
+            {
+                error = "room.not_enough_players";
+                return false;
+            }
+
+            entry.IsStarted = true;
+            entry.LastTouchedUtc = DateTime.UtcNow;
+            room = CreateLobbyInfoUnsafe(code, entry);
+            Console.WriteLine($"[{code}] 대기방 시작 ({entry.Players.Count}명)");
+            return true;
+        }
+    }
+
+    /// <summary>호스트가 시작한 대기방이거나 이미 실행 중인 게임방인지 확인한다.</summary>
+    public bool IsGameRoomOpen(string rawCode)
+    {
+        string code = Normalize(rawCode);
+        if (string.IsNullOrEmpty(code)) return false;
+        lock (gate)
+        {
+            if (rooms.ContainsKey(code)) return true;
+            return lobbies.TryGetValue(code, out LobbyEntry entry) && entry.IsStarted;
+        }
+    }
+
+    private static bool TryNormalizeLobbyPlayer(string clientId, string nickName,
+        out string normalizedClientId, out string normalizedNickName, out string error)
+    {
+        normalizedClientId = clientId?.Trim();
+        normalizedNickName = nickName?.Trim();
+        error = null;
+        if (string.IsNullOrWhiteSpace(normalizedClientId)) { error = "player.invalid_client"; return false; }
+        if (string.IsNullOrWhiteSpace(normalizedNickName) || normalizedNickName.Length > 16)
+        {
+            error = "player.invalid_nickname";
+            return false;
+        }
+        return true;
+    }
+
+    private string CreateLobbyCodeUnsafe()
+    {
+        return Random.Shared.Next(0, 1_000_000).ToString($"D{LobbyCodeLength}");
+    }
+
+    private static LobbyRoomInfo CreateLobbyInfoUnsafe(string code, LobbyEntry entry) => new()
+    {
+        RoomCode = code,
+        IsStarted = entry.IsStarted,
+        MaxPlayers = MaximumLobbyPlayers,
+        Players = entry.Players.Values.OrderBy(name => name, StringComparer.Ordinal).ToList(),
+    };
+
+    private void SweepExpiredLobbiesUnsafe()
+    {
+        DateTime now = DateTime.UtcNow;
+        TimeSpan waitingLifetime = TimeSpan.FromMinutes(30);
+        TimeSpan startedLifetime = TimeSpan.FromMinutes(2);
+        foreach (string code in lobbies
+                     .Where(pair => now - pair.Value.LastTouchedUtc >
+                                    (pair.Value.IsStarted ? startedLifetime : waitingLifetime))
+                     .Select(pair => pair.Key).ToArray())
+            lobbies.Remove(code);
+    }
 
     // 방을 먼저 찾아보고, 없다면 만든다.
     //
@@ -206,15 +381,15 @@ public class RoomHub
         // string처리를 유연하게 해줘야함.
         //string code = raw.Trim().ToUpperInvariant();
         
-        // raw의 앞뒤 공백을 제거하고, 대문자 처리 해준다.
-        string code = raw.Trim().ToUpper();
+        // 6자리 10진수 방 코드만 허용한다. 앞자리 0도 유효한 코드다.
+        string code = raw.Trim();
+        if (code.Length != LobbyCodeLength) return null;
 
         // string의 문자를 하나씩 검사해서
         // 특수문자가 있는지 확인해 준다
         foreach (char c in code)
         {
-            // c가 문자 또는 숫자가 아니라면 return null 한다.
-            if (char.IsLetterOrDigit(c) == false) return null;
+            if (char.IsDigit(c) == false) return null;
         }
 
         return code;
