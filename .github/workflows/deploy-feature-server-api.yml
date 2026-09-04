@@ -1,15 +1,15 @@
-name: Deploy feature/server-api to team2
+name: Deploy main to team2
 
 on:
   push:
     branches:
-      - feature/server-api
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: team2-feature-server-api
+  group: team2-main
   cancel-in-progress: false
 
 jobs:
@@ -49,9 +49,9 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -p "${DEPLOY_PORT:-22}" team2@"$DEPLOY_HOST" <<'REMOTE'
             set -euo pipefail
-            git -C "$HOME/src" fetch origin feature/server-api
-            git -C "$HOME/src" switch feature/server-api
-            git -C "$HOME/src" pull --ff-only origin feature/server-api
+            git -C "$HOME/src" fetch origin main
+            git -C "$HOME/src" switch main
+            git -C "$HOME/src" pull --ff-only origin main
             "$HOME/deploy.sh"
           REMOTE
 
