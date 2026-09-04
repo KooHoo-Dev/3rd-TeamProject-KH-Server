@@ -64,3 +64,6 @@ nunit-*.xml
 /ProjectSettings/
 /UserSettings/
 .idea/.idea.3rd-TeamProject-KH-Server.dir/.idea
+HelloServer/.idea
+HelloServer/.DS_Store
+.DS_Store
