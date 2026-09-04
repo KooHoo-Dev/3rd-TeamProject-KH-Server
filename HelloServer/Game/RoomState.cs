@@ -17,6 +17,9 @@ public sealed class PlayerRoomState
     public string Id { get; init; }
     public float X { get; set; }
     public float Y { get; set; }
+    public bool IsDead { get; set; }
+    public float DeathX { get; set; }
+    public float DeathY { get; set; }
     public int EquippedPickaxeItemID { get; set; } = 2; // ID 2: 개발용 곡괭이
 }
 

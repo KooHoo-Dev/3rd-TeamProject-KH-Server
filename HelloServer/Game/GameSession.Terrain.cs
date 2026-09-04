@@ -2,6 +2,88 @@ namespace HelloServer;
 
 public sealed partial class GameSession
 {
+    public bool TryCreateDeathLoot(
+        string playerId,
+        TerrainDeathLootRequest request,
+        out TerrainChangeBatchMessage terrainMessage,
+        out InventorySnapshotMessage inventoryMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        terrainMessage = null;
+        inventoryMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        lock (stateGate)
+        {
+            if (request == null)
+                return Fail("terrain.invalid_death_loot", "유효하지 않은 사망 보관함 요청입니다.", out errorCode, out errorMessage);
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (player.IsDead)
+                return Fail("player.already_dead", "이미 사망 보관함을 생성했습니다.", out errorCode, out errorMessage);
+            if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
+                return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
+
+            GridCoord deathCell = new(
+                (int)Math.Floor((player.X - State.Terrain.OriginX) / State.Terrain.CellSize),
+                (int)Math.Floor((player.Y - State.Terrain.OriginY) / State.Terrain.CellSize));
+            if (deathCell.X < 0 || deathCell.X >= State.Terrain.MapWidth ||
+                deathCell.Y < 0 || deathCell.Y >= State.Terrain.MapHeight)
+                return Fail("terrain.invalid_death_loot", "사망 위치가 맵 범위 밖입니다.", out errorCode, out errorMessage);
+            if (State.Terrain.ReservedCollapseCells.Contains(deathCell))
+                return Fail("terrain.collapse_pending", "낙하 중인 위치에는 사망 보관함을 만들 수 없습니다.", out errorCode, out errorMessage);
+            if (State.Terrain.Cells.TryGetValue(deathCell, out TerrainCellRoomState existing) &&
+                (existing.TileTypeID == (int)ServerTerrainTileType.Bedrock ||
+                 existing.TileTypeID == (int)ServerTerrainTileType.DeathLoot))
+                return Fail("terrain.invalid_death_loot", "사망 보관함을 만들 수 없는 지형입니다.", out errorCode, out errorMessage);
+
+            TerrainLootEntryDto[] lootEntries = inventory.Quantities
+                .Where(pair => pair.Key > 0 && pair.Value > 0)
+                .OrderBy(pair => pair.Key)
+                .Select(pair => new TerrainLootEntryDto(pair.Key, pair.Value))
+                .ToArray();
+            if (lootEntries.Length == 0)
+                return Fail("inventory.empty", "보관할 아이템이 없습니다.", out errorCode, out errorMessage);
+
+            ServerTerrainCatalog.TileDefinition deathLootTile =
+                terrainCatalog.GetTile(ServerTerrainTileType.DeathLoot);
+            TerrainCellRoomState deathLootCell = new()
+            {
+                TileTypeID = (int)ServerTerrainTileType.DeathLoot,
+                Durability = deathLootTile.MaxDurability,
+                ResourceID = 0,
+                LootEntries = lootEntries,
+            };
+            State.Terrain.Cells[deathCell] = deathLootCell;
+            inventory.Quantities.Clear();
+            player.IsDead = true;
+            player.DeathX = player.X;
+            player.DeathY = player.Y;
+
+            uint baseRevision = State.Terrain.Revision;
+            State.Terrain.Revision = baseRevision + 1;
+            terrainMessage = new TerrainChangeBatchMessage
+            {
+                RequestId = request.RequestId,
+                Batch = new TerrainChangeBatchDto
+                {
+                    MapSessionID = State.MapSession.Descriptor.MapSessionID,
+                    CollapseID = 0,
+                    BaseRevision = baseRevision,
+                    ResultRevision = State.Terrain.Revision,
+                    Changes = new List<TerrainCellChangeDto>
+                    {
+                        CreateCellChange(deathCell, deathLootCell),
+                    },
+                },
+            };
+            inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
+            return true;
+        }
+    }
+
     // 굴착은 칸 하나짜리 독립 연산이라 Revision 을 대조하지 않습니다.
     //
     // Revision 은 방에 하나뿐인 번호입니다. 남이 반대편 칸을 파도 올라갑니다.

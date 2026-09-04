@@ -13,6 +13,14 @@ public sealed class TerrainExcavationRequest : PacketHeader
     public bool IsValid() => ItemID > 0;
 }
 
+public sealed class TerrainDeathLootRequest : PacketHeader
+{
+    public TerrainDeathLootRequest()
+    {
+        Type = PacketTypes.TerrainDeathLootRequest;
+    }
+}
+
 public sealed class TerrainCollapsePlacementRequest : PacketHeader
 {
     public TerrainCollapsePlacementRequest()

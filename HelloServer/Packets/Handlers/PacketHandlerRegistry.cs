@@ -11,9 +11,11 @@ public static class PacketHandlerRegistry
             new PlayerMovePacketHandler(),
             new ChatSendPacketHandler(),
             new TerrainExcavationPacketHandler(),
+            new TerrainDeathLootPacketHandler(),
             new TerrainCollapseStartPacketHandler(),
             new TerrainCollapsePlacementPacketHandler(),
             new WorldItemPickupPacketHandler(),
+            new WorldItemDropPacketHandler(),
         });
     }
 }

@@ -4,6 +4,8 @@ namespace HelloServer;
 public sealed partial class GameSession
 {
     private const float MaximumPickupDistance = 3f;
+    private const float MaximumDropDistance = 3f;
+    private const float RespawnMovementDistance = 0.25f;
 
     // 지형과 아이템 표는 방마다 새로 읽을 이유가 없습니다.
     // 한 번만 읽고 모든 방이 나눠 씁니다. 읽은 뒤로는 아무도 바꾸지 않습니다.
@@ -84,6 +86,13 @@ public sealed partial class GameSession
 
         player.X = x;
         player.Y = y;
+        if (player.IsDead)
+        {
+            float dx = x - player.DeathX;
+            float dy = y - player.DeathY;
+            if (dx * dx + dy * dy >= RespawnMovementDistance * RespawnMovementDistance)
+                player.IsDead = false;
+        }
     }
 
     public PlayerState[] CreatePlayerStateSnapshot()
@@ -200,6 +209,56 @@ public sealed partial class GameSession
         }
     }
 
+    public bool TryDropWorldItem(
+        string playerId,
+        WorldItemDropRequest request,
+        out WorldItemSpawnedMessage spawnedMessage,
+        out InventorySnapshotMessage inventoryMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        spawnedMessage = null;
+        inventoryMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        lock (stateGate)
+        {
+            if (request?.IsValid() != true)
+                return Fail("item.invalid_request", "유효하지 않은 아이템 버리기 요청입니다.", out errorCode, out errorMessage);
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (player.IsDead)
+                return Fail("player.dead", "사망 상태에서는 아이템을 버릴 수 없습니다.", out errorCode, out errorMessage);
+            if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
+                return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (IsInsideMap(request.X, request.Y) == false)
+                return Fail("item.invalid_position", "아이템을 버릴 위치가 맵 범위 밖입니다.", out errorCode, out errorMessage);
+
+            float dx = player.X - request.X;
+            float dy = player.Y - request.Y;
+            if (dx * dx + dy * dy > MaximumDropDistance * MaximumDropDistance)
+                return Fail("item.out_of_range", "아이템을 버릴 위치가 서버 허용 거리 밖입니다.", out errorCode, out errorMessage);
+
+            int ownedQuantity = inventory.Quantities.GetValueOrDefault(request.ItemID);
+            if (ownedQuantity < request.Quantity)
+                return Fail("inventory.insufficient", "버릴 아이템 수량이 부족합니다.", out errorCode, out errorMessage);
+
+            int remainingQuantity = ownedQuantity - request.Quantity;
+            if (remainingQuantity == 0) inventory.Quantities.Remove(request.ItemID);
+            else inventory.Quantities[request.ItemID] = remainingQuantity;
+
+            spawnedMessage = CreateDrop(
+                request.ItemID,
+                request.Quantity,
+                request.X,
+                request.Y,
+                request.RequestId);
+            inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
+            return true;
+        }
+    }
+
     private void SetGeneratedTerrain(ServerGeneratedTerrain generated)
     {
         State.MapSession.Descriptor = generated.Session;
@@ -270,13 +329,28 @@ public sealed partial class GameSession
         int quantity,
         string requestId)
     {
+        return CreateDrop(
+            itemID,
+            quantity,
+            State.Terrain.OriginX + (coord.X + 0.5f) * State.Terrain.CellSize,
+            State.Terrain.OriginY + (coord.Y + 0.5f) * State.Terrain.CellSize,
+            requestId);
+    }
+
+    private WorldItemSpawnedMessage CreateDrop(
+        int itemID,
+        int quantity,
+        float x,
+        float y,
+        string requestId)
+    {
         WorldItemDropDto drop = new()
         {
             DropID = $"d{Interlocked.Increment(ref lastDropID)}",
             ItemID = itemID,
             Quantity = quantity,
-            X = State.Terrain.OriginX + (coord.X + 0.5f) * State.Terrain.CellSize,
-            Y = State.Terrain.OriginY + (coord.Y + 0.5f) * State.Terrain.CellSize,
+            X = x,
+            Y = y,
         };
         State.WorldItems.Drops[drop.DropID] = drop;
         return new WorldItemSpawnedMessage
@@ -307,5 +381,13 @@ public sealed partial class GameSession
         errorCode = code;
         errorMessage = message;
         return false;
+    }
+
+    private bool IsInsideMap(float x, float y)
+    {
+        float maximumX = State.Terrain.OriginX + State.Terrain.MapWidth * State.Terrain.CellSize;
+        float maximumY = State.Terrain.OriginY + State.Terrain.MapHeight * State.Terrain.CellSize;
+        return x >= State.Terrain.OriginX && x <= maximumX &&
+               y >= State.Terrain.OriginY && y <= maximumY;
     }
 }

@@ -59,6 +59,23 @@ public sealed class WorldItemPickupRequest : PacketHeader
     public float Y { get; set; }
 }
 
+public sealed class WorldItemDropRequest : PacketHeader
+{
+    public WorldItemDropRequest()
+    {
+        Type = PacketTypes.WorldItemDrop;
+    }
+
+    public int ItemID { get; set; }
+    public int Quantity { get; set; }
+    public float X { get; set; }
+    public float Y { get; set; }
+
+    public bool IsValid()
+        => ItemID > 0 && Quantity > 0 && float.IsFinite(X) && float.IsFinite(Y);
+}
+
+
 public sealed class WorldItemSnapshotMessage : PacketHeader
 {
     public WorldItemSnapshotMessage()
