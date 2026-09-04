@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Content Include="Data\**\*.tsv" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="Data\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -22,6 +22,10 @@ public sealed partial class GameSession
     private static readonly ServerItemCatalog itemCatalog =
         new(Path.Combine(AppContext.BaseDirectory, "Data", "Item", "Items.tsv"));
 
+    private static readonly ServerPlayerConfig playerConfig =
+        ServerPlayerConfig.Load(Path.Combine(
+            AppContext.BaseDirectory, "Data", "Player", "playerconfig.json"));
+
     private readonly object stateGate = new();
     private long lastDropID;
     private long lastCollapseID;
@@ -41,6 +45,8 @@ public sealed partial class GameSession
         State.Players[user.Id] = new PlayerRoomState
         {
             Id = user.Id,
+            CurrentHealth = playerConfig.InitialHealth,
+            MaxHealth = playerConfig.MaxHealth,
         };
         lock (stateGate)
         {
@@ -53,6 +59,31 @@ public sealed partial class GameSession
 
             State.Inventory.Players.TryAdd(user.Id, inventory);
         }
+    }
+
+    public PlayerHealthSnapshotMessage CreatePlayerHealthSnapshotMessage()
+    {
+        lock (stateGate)
+        {
+            return new PlayerHealthSnapshotMessage
+            {
+                Players = State.Players.Values
+                    .OrderBy(player => player.Id, StringComparer.Ordinal)
+                    .Select(CreatePlayerHealthState)
+                    .ToArray(),
+            };
+        }
+    }
+
+    private static PlayerHealthStateDto CreatePlayerHealthState(PlayerRoomState player)
+    {
+        return new PlayerHealthStateDto
+        {
+            PlayerID = player.Id,
+            CurrentHealth = player.CurrentHealth,
+            MaxHealth = player.MaxHealth,
+            IsDead = player.IsDead,
+        };
     }
 
     // 나간 사람의 상태를 지우고, 그 사람이 잡아 둔 낙하 예약도 함께 풉니다.

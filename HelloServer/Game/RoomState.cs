@@ -17,6 +17,8 @@ public sealed class PlayerRoomState
     public string Id { get; init; }
     public float X { get; set; }
     public float Y { get; set; }
+    public int CurrentHealth { get; set; }
+    public int MaxHealth { get; set; }
     public bool IsDead { get; set; }
     public float DeathX { get; set; }
     public float DeathY { get; set; }

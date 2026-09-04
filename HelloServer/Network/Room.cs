@@ -311,6 +311,7 @@ public sealed class Room
                 if (mapSession != null) await SendAsync(member, mapSession);
                 await SendAsync(member, gameSession.CreateWorldItemSnapshotMessage());
                 await SendAsync(member, gameSession.CreateInventorySnapshotMessage(id));
+                await SendAsync(member, gameSession.CreatePlayerHealthSnapshotMessage());
 
                 member.IsReadyForBroadcast = true;
                 members[id] = member;

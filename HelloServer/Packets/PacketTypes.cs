@@ -11,6 +11,10 @@ public static class PacketTypes
     public const string LegacyState = "state";
 
     public const string PlayerMove = "player.move";
+    public const string PlayerHealthSnapshot = "player.health_snapshot";
+    public const string PlayerHealthChanged = "player.health_changed";
+    public const string PlayerDied = "player.died";
+    public const string PlayerRespawned = "player.respawned";
     public const string ChatSend = "chat.send";
 
     // refactor/server-sync-foundation 클라이언트 계약과 동일한 Type 값입니다.
