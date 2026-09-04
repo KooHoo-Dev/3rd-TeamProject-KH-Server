@@ -31,6 +31,22 @@ public sealed class LobbyHub
         lock (gate) return lobbies.TryGetValue(code, out Lobby lobby) && lobby.IsStarted;
     }
 
+    public bool TryGetStartedPlayerCount(string rawCode, out int playerCount)
+    {
+        playerCount = 0;
+        string code = Normalize(rawCode);
+        if (code == null) return false;
+
+        lock (gate)
+        {
+            if (lobbies.TryGetValue(code, out Lobby lobby) == false || lobby.IsStarted == false)
+                return false;
+
+            playerCount = lobby.Players.Count;
+            return playerCount >= MinimumPlayers && playerCount <= MaximumPlayers;
+        }
+    }
+
     public async Task HandleAsync(WebSocket socket, CancellationToken token)
     {
         string code = null;

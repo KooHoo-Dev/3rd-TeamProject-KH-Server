@@ -11,6 +11,15 @@ public sealed class RoomState
     public InventoryRoomState Inventory { get; } = new();
     public WorldItemRoomState WorldItems { get; } = new();
     public DynamiteRoomState Dynamites { get; } = new();
+    public GameFlowRoomState GameFlow { get; } = new();
+}
+
+public sealed class GameFlowRoomState
+{
+    public int ExpectedPlayerCount { get; internal set; }
+    public HashSet<string> ReadyPlayerIDs { get; } = new();
+    public bool IsStarted { get; internal set; }
+    public long StartedAtUnixMilliseconds { get; internal set; }
 }
 
 public sealed class PlayerRoomState

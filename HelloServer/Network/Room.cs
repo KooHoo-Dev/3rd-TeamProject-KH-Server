@@ -41,11 +41,13 @@ public sealed class Room
     private readonly GameSession gameSession;
     private readonly PacketDispatcher packetDispatcher;
 
-    public Room(string code, int logMovesPerSecond)
+    public bool IsGameStarted => gameSession.State.GameFlow.IsStarted;
+
+    public Room(string code, int logMovesPerSecond, int expectedPlayerCount)
     {
         this.code = code;
         this.logMovesPerSecond = logMovesPerSecond;
-        gameSession = new GameSession(code);
+        gameSession = new GameSession(code, expectedPlayerCount);
         packetDispatcher = PacketHandlerRegistry.CreateDefault();
         broadcastLoop = BroadcastQueueLoopAsync();
     }

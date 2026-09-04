@@ -91,7 +91,7 @@ public class Program
                 await context.Response.WriteAsync("방코드 해석 불가능");
                 return;
             }
-            if (lobbyHub.IsStarted(code) == false)
+            if (lobbyHub.TryGetStartedPlayerCount(code, out int expectedPlayerCount) == false)
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 await context.Response.WriteAsync("호스트가 게임을 시작한 대기방에만 입장할 수 있습니다.");
@@ -101,7 +101,7 @@ public class Program
             // 여기까지 오면 예외처리 완료된것
             // 소켓을 만들어 준다(연결을 받아준다)
             WebSocket socket = await context.WebSockets.AcceptWebSocketAsync();
-            await hub.HandleAsync(code, socket, context.RequestAborted);
+            await hub.HandleAsync(code, expectedPlayerCount, socket, context.RequestAborted);
         });
 
         // 어플리케이션이 종료될때까지 허브가 Broadcast 루프를 돌도록 설정해준다.

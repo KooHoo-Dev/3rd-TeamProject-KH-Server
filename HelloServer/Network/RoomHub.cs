@@ -215,19 +215,24 @@ public class RoomHub
     // 방을 만드는 일은 자물쇠 밖에서 한다.
     // 지형을 만드는 데 20ms 가까이 걸리는데, 그동안 자물쇠를 쥐고 있으면
     // 초당 10번 도는 위치 방송이 이 방뿐 아니라 다른 방까지 통째로 멈춘다.
-    private async Task<Room> EnterAsync(string code)
+    private async Task<Room> EnterAsync(string code, int expectedPlayerCount)
     {
         lock (gate)
         {
             if (rooms.TryGetValue(code, out Entry found))
             {
+                if (found.Room.IsGameStarted || found.Users >= expectedPlayerCount)
+                    return null;
+
                 found.Users++;
                 return found.Room;
             }
         }
 
-        Room created = new Room(code, logMovesPerSecond);
+        Room created = new Room(code, logMovesPerSecond, expectedPlayerCount);
         Room discarded = null;
+        Room selected = null;
+
         // lock(매개변수)?
         // : 해당 영역에 들어갈 수 있는 녀석들은. gate를 참조하고있는
         //  녀석들만 들어올 수 있습니다. 다른 녀석을 못들어옴.
@@ -247,21 +252,27 @@ public class RoomHub
             {
                 // 내가 만드는 사이에 다른 사람이 먼저 만들었다. 내 것은 버린다.
                 discarded = created;
-                created = entry.Room;
+
+                if (entry.Room.IsGameStarted || entry.Users >= expectedPlayerCount)
+                    selected = null;
+                else
+                {
+                    entry.Users++;
+                    selected = entry.Room;
+                }
             }
             else
             {
-                entry = new Entry() { Room = created, Users = 0 };
+                entry = new Entry() { Room = created, Users = 1 };
                 rooms.Add(code, entry);
+                selected = created;
                 Console.WriteLine($"[{code}] 방을 열었다. 총 방의 개수 : {rooms.Count}");
             }
-
-            entry.Users++;
         }
 
         if (discarded != null) await discarded.StopAsync();
 
-        return created;
+        return selected;
     }
 
     // 방을 떠나고, 아무도 없으면 방을 지운다.
@@ -286,10 +297,23 @@ public class RoomHub
     // 아래의 비동기 함수는 한 사람의 접속부터 끊김까지
     // 방을 찾아 넘기고, 끝나면 뒷정리하는 함수 입니다.
     // (RoomHub -> Room의 함수를 호출)
-    public async Task HandleAsync(string code, 
+    public async Task HandleAsync(string code, int expectedPlayerCount,
         WebSocket socket, CancellationToken token)
     {
-        Room room = await EnterAsync(code);
+        Room room = await EnterAsync(code, expectedPlayerCount);
+
+        if (room == null)
+        {
+            if (socket.State == WebSocketState.Open)
+                await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation,
+                    "Game already started or room is full.",
+                    CancellationToken.None);
+
+            Console.WriteLine($"[{code}] 게임이 진행 중이거나 정원이 차서 입장이 거절됨");
+
+            return;
+        }
+
         // lastId를 여러 접속자가 동시에 수정 할수 있으므로
         // Interlocked를 이용해서 락을 걸어줍니다.
         // 이것도 외워버리십쇼.

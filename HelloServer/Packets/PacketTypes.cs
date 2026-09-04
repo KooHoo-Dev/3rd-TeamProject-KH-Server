@@ -11,6 +11,8 @@ public static class PacketTypes
     public const string LegacyState = "state";
 
     public const string PlayerMove = "player.move";
+    public const string PlayerReady = "player.ready";
+    public const string GameStarted = "game.started";
     public const string PlayerHealthSnapshot = "player.health_snapshot";
     public const string PlayerHealthChanged = "player.health_changed";
     public const string PlayerDied = "player.died";

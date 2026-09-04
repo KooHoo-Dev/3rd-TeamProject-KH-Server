@@ -9,6 +9,7 @@ public static class PacketHandlerRegistry
         return new PacketDispatcher(new IPacketHandler[]
         {
             new PlayerMovePacketHandler(),
+            new PlayerReadyPacketHandler(),
             new PlayerDamagePacketHandler(),
             new PlayerRespawnPacketHandler(),
             new ChatSendPacketHandler(),

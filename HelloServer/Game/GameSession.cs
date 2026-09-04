@@ -37,13 +37,49 @@ public sealed partial class GameSession
 
     public RoomState State { get; } = new();
 
-    public GameSession(string roomCode)
+    public GameSession(string roomCode, int expectedPlayerCount)
     {
+        State.GameFlow.ExpectedPlayerCount = Math.Clamp(expectedPlayerCount, 1, LobbyHub.MaximumPlayers);
         int seed = Random.Shared.Next(1, int.MaxValue);
         ServerGeneratedTerrain generated =
             new ServerTerrainGenerator(terrainCatalog).Generate(roomCode, "Default", seed);
         SetGeneratedTerrain(generated);
     }
+
+    public bool MarkPlayerReady(
+        string playerId,
+        out GameStartedMessage startedMessage,
+        out bool newlyStarted)
+    {
+        startedMessage = null;
+        newlyStarted = false;
+
+        lock (stateGate)
+        {
+            if (State.Players.ContainsKey(playerId) == false) return false;
+
+            if (State.GameFlow.IsStarted)
+            {
+                startedMessage = CreateGameStartedMessageUnsafe();
+                return true;
+            }
+
+            State.GameFlow.ReadyPlayerIDs.Add(playerId);
+            if (State.GameFlow.ReadyPlayerIDs.Count < State.GameFlow.ExpectedPlayerCount)
+                return true;
+
+            State.GameFlow.IsStarted = true;
+            State.GameFlow.StartedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            newlyStarted = true;
+            startedMessage = CreateGameStartedMessageUnsafe();
+            return true;
+        }
+    }
+
+    private GameStartedMessage CreateGameStartedMessageUnsafe() => new()
+    {
+        StartedAtUnixMilliseconds = State.GameFlow.StartedAtUnixMilliseconds,
+    };
 
     public void AddPlayer(User user, bool debugMode)
     {
@@ -149,6 +185,7 @@ public sealed partial class GameSession
         {
             State.Players.TryRemove(playerId, out _);
             State.Inventory.Players.Remove(playerId);
+            State.GameFlow.ReadyPlayerIDs.Remove(playerId);
             lastDamageRequestAtMilliseconds.Remove(playerId);
 
             List<long> owned = State.Terrain.PendingCollapses
