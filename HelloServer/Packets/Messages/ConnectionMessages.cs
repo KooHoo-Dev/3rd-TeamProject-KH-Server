@@ -3,12 +3,14 @@ namespace HelloServer;
 public class User
 {
     public string Id { get; set; }
+    public string ClientID { get; set; }
     public string NickName { get; set; }
 }
 
 public class HelloMessage : PacketHeader
 {
     public string NickName { get; set; }
+    public string ClientID { get; set; }
     public bool DebugMode { get; set; }
 }
 

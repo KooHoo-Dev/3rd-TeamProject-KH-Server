@@ -282,6 +282,9 @@ public sealed class Room
             User = new User
             {
                 Id = id,
+                ClientID = string.IsNullOrWhiteSpace(hello.ClientID)
+                    ? id
+                    : hello.ClientID.Trim(),
                 NickName = hello.NickName.Trim(),
             },
         };
