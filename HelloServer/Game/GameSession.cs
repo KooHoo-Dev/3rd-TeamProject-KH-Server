@@ -7,6 +7,9 @@ public sealed partial class GameSession
     private const float MaximumDropDistance = 3f;
     private const float RespawnMovementDistance = 0.25f;
     private const long ManualDropPickupDelayMilliseconds = 2_000;
+    private const int DebugGoldItemID = 100;
+    private const int DebugDynamiteItemID = 1;
+    private const int DebugItemQuantity = 1_000;
 
     // 지형과 아이템 표는 방마다 새로 읽을 이유가 없습니다.
     // 한 번만 읽고 모든 방이 나눠 씁니다. 읽은 뒤로는 아무도 바꾸지 않습니다.
@@ -33,14 +36,23 @@ public sealed partial class GameSession
         SetGeneratedTerrain(generated);
     }
 
-    public void AddPlayer(User user)
+    public void AddPlayer(User user, bool debugMode)
     {
         State.Players[user.Id] = new PlayerRoomState
         {
             Id = user.Id,
         };
         lock (stateGate)
-            State.Inventory.Players.TryAdd(user.Id, new PlayerInventoryRoomState());
+        {
+            PlayerInventoryRoomState inventory = new();
+            if (debugMode)
+            {
+                inventory.Quantities[DebugGoldItemID] = DebugItemQuantity;
+                inventory.Quantities[DebugDynamiteItemID] = DebugItemQuantity;
+            }
+
+            State.Inventory.Players.TryAdd(user.Id, inventory);
+        }
     }
 
     // 나간 사람의 상태를 지우고, 그 사람이 잡아 둔 낙하 예약도 함께 풉니다.

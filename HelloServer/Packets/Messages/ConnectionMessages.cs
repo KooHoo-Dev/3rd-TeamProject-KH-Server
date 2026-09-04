@@ -9,6 +9,7 @@ public class User
 public class HelloMessage : PacketHeader
 {
     public string NickName { get; set; }
+    public bool DebugMode { get; set; }
 }
 
 public class WelcomeMessage : PacketHeader

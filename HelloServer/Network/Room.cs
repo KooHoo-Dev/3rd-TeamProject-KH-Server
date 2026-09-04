@@ -302,7 +302,7 @@ public sealed class Room
 
             try
             {
-                gameSession.AddPlayer(member.User);
+                gameSession.AddPlayer(member.User, hello.DebugMode);
                 gameSession.TryCreateMapSessionMessage(out MapSessionMessage mapSession);
 
                 // 지형은 보내지 않습니다. 시드가 든 mapSession 만 보냄.
