@@ -45,34 +45,23 @@ public class Program
         
         // 서버에 방을 추가해 줍시다.
         RoomHub hub = new RoomHub(perSecond, logMoves);
+        LobbyHub lobbyHub = new LobbyHub();
         app.Lifetime.ApplicationStopping.Register(hub.StopAll);
         
         app.UseWebSockets();
         app.MapGet("/ping", () => "pong");
 
-        app.MapPost("/rooms", (LobbyCreateRequest request) =>
+        app.Map("/lobby", async context =>
         {
-            if (hub.TryCreateLobby(request?.ClientID, request?.NickName,
-                    out LobbyCreateResponse response, out string error))
-                return Results.Ok(response);
-            return Results.BadRequest(new { Code = error });
-        });
-        app.MapPost("/rooms/{code}/join", (string code, LobbyJoinRequest request) =>
-        {
-            if (hub.TryJoinLobby(code, request?.ClientID, request?.NickName,
-                    out LobbyRoomInfo room, out string error))
-                return Results.Ok(room);
-            return Results.BadRequest(new { Code = error });
-        });
-        app.MapGet("/rooms/{code}", (string code) =>
-            hub.TryGetLobby(code, out LobbyRoomInfo room)
-                ? Results.Ok(room)
-                : Results.NotFound(new { Code = "room.not_found" }));
-        app.MapPost("/rooms/{code}/start", (string code, LobbyStartRequest request) =>
-        {
-            if (hub.TryStartLobby(code, request?.HostToken, out LobbyRoomInfo room, out string error))
-                return Results.Ok(room);
-            return Results.BadRequest(new { Code = error });
+            if (context.WebSockets.IsWebSocketRequest == false)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsync("WebSocket connection required.");
+                return;
+            }
+
+            WebSocket socket = await context.WebSockets.AcceptWebSocketAsync();
+            await lobbyHub.HandleAsync(socket, context.RequestAborted);
         });
 
         // 방으로 들어오는 문
@@ -95,14 +84,14 @@ public class Program
             // 방코드는 쿼리 스트링을 통해서 주소에 실려오도록 설계되었습니다
             // ex) ws://localhost:5000/room?code=ABCE
             
-            string code = RoomHub.Normalize(context.Request.Query["code"]);
+            string code = LobbyHub.Normalize(context.Request.Query["code"]);
             if (string.IsNullOrEmpty(code))
             {
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 await context.Response.WriteAsync("방코드 해석 불가능");
                 return;
             }
-            if (hub.IsGameRoomOpen(code) == false)
+            if (lobbyHub.IsStarted(code) == false)
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 await context.Response.WriteAsync("호스트가 게임을 시작한 대기방에만 입장할 수 있습니다.");
