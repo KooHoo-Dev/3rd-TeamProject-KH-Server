@@ -323,39 +323,23 @@ public sealed partial class GameSession
 
             foreach (PlayerRoomState player in State.Players.Values)
             {
-                if (player.IsDead || IsInSpawnAreaUnsafe(player.X, player.Y))
-                    continue;
-
                 float deltaX = player.X - worldX;
                 float deltaY = player.Y - worldY;
                 if (deltaX * deltaX + deltaY * deltaY > radiusSqr)
                     continue;
 
-                player.CurrentHealth = Math.Max(
-                    0,
-                    player.CurrentHealth - projectile.ExplosionPower);
-
-                PlayerHealthStateDto state = CreatePlayerHealthState(player);
-                changed.Add(new PlayerHealthChangedMessage
+                if (TryApplyPlayerDamageUnsafe(
+                        player,
+                        projectile.ExplosionPower,
+                        "Explosion",
+                        requestId,
+                        out PlayerHealthChangedMessage changedMessage,
+                        out PlayerDiedMessage diedMessage))
                 {
-                    RequestId = requestId,
-                    Player = state,
-                    DamageType = "Explosion",
-                });
-
-                if (player.CurrentHealth > 0)
-                    continue;
-
-                player.IsDead = true;
-                player.DeathX = player.X;
-                player.DeathY = player.Y;
-
-                // 사망 상태를 바꾼 뒤의 값을 죽음 메시지에도 담는다.
-                died.Add(new PlayerDiedMessage
-                {
-                    RequestId = requestId,
-                    Player = CreatePlayerHealthState(player),
-                });
+                    changed.Add(changedMessage);
+                    if (diedMessage != null)
+                        died.Add(diedMessage);
+                }
             }
 
             healthChangedMessages = changed.ToArray();

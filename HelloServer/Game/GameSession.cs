@@ -5,7 +5,9 @@ public sealed partial class GameSession
 {
     private const float MaximumPickupDistance = 3f;
     private const float MaximumDropDistance = 3f;
-    private const float RespawnMovementDistance = 0.25f;
+    private const float MaximumReportedDamageDistance = 3f;
+    private const int MaximumReportedDamage = 500;
+    private const long MinimumDamageRequestIntervalMilliseconds = 100;
     private const long ManualDropPickupDelayMilliseconds = 2_000;
     private const float MaximumDynamiteStartDistance = 1.5f;
     private const int DebugGoldItemID = 100;
@@ -31,6 +33,7 @@ public sealed partial class GameSession
     private long lastDropID;
     private long lastCollapseID;
     private long lastDynamiteProjectileID;
+    private readonly Dictionary<string, long> lastDamageRequestAtMilliseconds = new();
 
     public RoomState State { get; } = new();
 
@@ -88,6 +91,47 @@ public sealed partial class GameSession
         };
     }
 
+    private static bool IsClientReportedDamageType(string damageType)
+    {
+        return damageType is "Fall" or "FallingChunk" or "Burial";
+    }
+
+    // stateGate 안에서만 호출한다.
+    private bool TryApplyPlayerDamageUnsafe(
+        PlayerRoomState player,
+        int amount,
+        string damageType,
+        string requestId,
+        out PlayerHealthChangedMessage changedMessage,
+        out PlayerDiedMessage diedMessage)
+    {
+        changedMessage = null;
+        diedMessage = null;
+        if (player.IsDead || IsInSpawnAreaUnsafe(player.X, player.Y))
+            return false;
+
+        player.CurrentHealth = Math.Max(0, player.CurrentHealth - amount);
+        changedMessage = new PlayerHealthChangedMessage
+        {
+            RequestId = requestId,
+            Player = CreatePlayerHealthState(player),
+            DamageType = damageType,
+        };
+
+        if (player.CurrentHealth > 0)
+            return true;
+
+        player.IsDead = true;
+        player.DeathX = player.X;
+        player.DeathY = player.Y;
+        diedMessage = new PlayerDiedMessage
+        {
+            RequestId = requestId,
+            Player = CreatePlayerHealthState(player),
+        };
+        return true;
+    }
+
     // 나간 사람의 상태를 지우고, 그 사람이 잡아 둔 낙하 예약도 함께 풉니다.
     //
     // 취소 메시지를 돌려주는 이유
@@ -103,6 +147,7 @@ public sealed partial class GameSession
         {
             State.Players.TryRemove(playerId, out _);
             State.Inventory.Players.Remove(playerId);
+            lastDamageRequestAtMilliseconds.Remove(playerId);
 
             List<long> owned = State.Terrain.PendingCollapses
                 .Where(pair => pair.Value.OwnerPlayerID == playerId)
@@ -132,16 +177,102 @@ public sealed partial class GameSession
 
         player.X = x;
         player.Y = y;
-        if (player.IsDead)
+    }
+
+    public bool TryApplyPlayerDamage(
+        string playerId,
+        PlayerDamageRequest request,
+        out PlayerHealthChangedMessage changedMessage,
+        out PlayerDiedMessage diedMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        changedMessage = null;
+        diedMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        if (request?.IsValid() != true ||
+            IsClientReportedDamageType(request?.DamageType) == false ||
+            request.Amount > MaximumReportedDamage)
+            return Fail("player.invalid_damage", "유효하지 않은 피해 요청입니다.", out errorCode, out errorMessage);
+
+        lock (stateGate)
         {
-            float dx = x - player.DeathX;
-            float dy = y - player.DeathY;
-            if (dx * dx + dy * dy >= RespawnMovementDistance * RespawnMovementDistance)
-            {
-                player.IsDead = false;
-                player.CurrentHealth = player.MaxHealth;
-            }
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+
+            long now = Environment.TickCount64;
+            if (lastDamageRequestAtMilliseconds.TryGetValue(playerId, out long previous) &&
+                now - previous < MinimumDamageRequestIntervalMilliseconds)
+                return Fail("player.damage_rate_limited", "피해 요청이 너무 빠릅니다.", out errorCode, out errorMessage);
+            lastDamageRequestAtMilliseconds[playerId] = now;
+
+            float deltaX = player.X - request.X;
+            float deltaY = player.Y - request.Y;
+            if (deltaX * deltaX + deltaY * deltaY >
+                MaximumReportedDamageDistance * MaximumReportedDamageDistance)
+                return Fail("player.invalid_damage_position", "피해 위치가 플레이어와 너무 멉니다.", out errorCode, out errorMessage);
+
+            if (TryApplyPlayerDamageUnsafe(
+                    player,
+                    request.Amount,
+                    request.DamageType,
+                    request.RequestId,
+                    out changedMessage,
+                    out diedMessage) == false)
+                return Fail("player.damage_ignored", "현재 플레이어는 피해를 받을 수 없습니다.", out errorCode, out errorMessage);
+
+            return true;
         }
+    }
+
+    public bool TryRespawnPlayer(
+        string playerId,
+        PlayerRespawnRequest request,
+        out PlayerRespawnedMessage respawnedMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        respawnedMessage = null;
+        errorCode = null;
+        errorMessage = null;
+        if (request?.IsValid() != true)
+            return Fail("player.invalid_respawn", "유효하지 않은 리스폰 요청입니다.", out errorCode, out errorMessage);
+
+        lock (stateGate)
+        {
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (player.IsDead == false)
+                return Fail("player.not_dead", "사망 상태에서만 리스폰할 수 있습니다.", out errorCode, out errorMessage);
+
+            (float spawnX, float spawnY) = GetSpawnPositionUnsafe();
+            player.X = spawnX;
+            player.Y = spawnY;
+            player.CurrentHealth = player.MaxHealth;
+            player.IsDead = false;
+            respawnedMessage = new PlayerRespawnedMessage
+            {
+                RequestId = request.RequestId,
+                Player = CreatePlayerHealthState(player),
+                X = spawnX,
+                Y = spawnY,
+            };
+            return true;
+        }
+    }
+
+    // stateGate 안에서만 호출한다.
+    private (float X, float Y) GetSpawnPositionUnsafe()
+    {
+        float cellSize = State.Terrain.CellSize;
+        float cellX = State.Terrain.SpawnAreaOriginX +
+                      State.Terrain.SpawnAreaWidth * 0.5f;
+        float cellY = State.Terrain.SpawnAreaOriginY + 0.5f;
+        return (
+            State.Terrain.OriginX + cellX * cellSize,
+            State.Terrain.OriginY + cellY * cellSize);
     }
 
     public PlayerState[] CreatePlayerStateSnapshot()
