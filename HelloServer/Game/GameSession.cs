@@ -150,18 +150,22 @@ public sealed partial class GameSession
         CountdownSeconds = gameConfig.CountdownSeconds,
     };
 
-    public void AddPlayer(User user, bool debugMode)
+    public (float X, float Y) AddPlayer(User user, bool debugMode)
     {
-        State.Players[user.Id] = new PlayerRoomState
-        {
-            Id = user.Id,
-            NickName = user.NickName,
-            CurrentHealth = playerConfig.InitialHealth,
-            MaxHealth = playerConfig.MaxHealth,
-            IsDebugMode = debugMode,
-        };
         lock (stateGate)
         {
+            PlayerRoomState player = new()
+            {
+                Id = user.Id,
+                NickName = user.NickName,
+                CurrentHealth = playerConfig.InitialHealth,
+                MaxHealth = playerConfig.MaxHealth,
+                IsDebugMode = debugMode,
+            };
+            AssignSpawnCellUnsafe(player);
+            (player.X, player.Y) = GetSpawnPositionUnsafe(player);
+            State.Players[user.Id] = player;
+
             PlayerInventoryRoomState inventory = new();
             if (debugMode)
             {
@@ -170,6 +174,7 @@ public sealed partial class GameSession
             }
 
             State.Inventory.Players.TryAdd(user.Id, inventory);
+            return (player.X, player.Y);
         }
     }
 
@@ -365,7 +370,7 @@ public sealed partial class GameSession
             if (player.IsDead == false)
                 return Fail("player.not_dead", "사망 상태에서만 리스폰할 수 있습니다.", out errorCode, out errorMessage);
 
-            (float spawnX, float spawnY) = GetSpawnPositionUnsafe();
+            (float spawnX, float spawnY) = GetSpawnPositionUnsafe(player);
             player.X = spawnX;
             player.Y = spawnY;
             player.CurrentHealth = player.MaxHealth;
@@ -382,12 +387,38 @@ public sealed partial class GameSession
     }
 
     // stateGate 안에서만 호출한다.
-    private (float X, float Y) GetSpawnPositionUnsafe()
+    private void AssignSpawnCellUnsafe(PlayerRoomState player)
+    {
+        ServerTerrainCatalog.ProfileDefinition profile =
+            terrainCatalog.GetProfile(State.MapSession.Descriptor.ProfileID);
+        int platformMinX = State.Terrain.SpawnAreaOriginX +
+                           profile.BoundaryThickness + profile.RespawnExitWidth;
+        int spawnMinX = platformMinX + 2;
+        int spawnCount = profile.RespawnPlatformWidth - 4;
+        List<int> candidates = Enumerable.Range(spawnMinX, spawnCount).ToList();
+
+        // 방의 시드로 한 번 정해지는 후보 순서를 모든 플레이어가 공유
+        Random random = new(State.MapSession.Descriptor.Seed);
+        for (int i = candidates.Count - 1; i > 0; i--)
+        {
+            int swapIndex = random.Next(i + 1);
+            (candidates[i], candidates[swapIndex]) = (candidates[swapIndex], candidates[i]);
+        }
+
+        HashSet<int> assignedCells = State.Players.Values
+            .Select(existing => existing.AssignedSpawnCellX)
+            .ToHashSet();
+        int assignedX = candidates.First(cellX => assignedCells.Contains(cellX) == false);
+
+        player.AssignedSpawnCellX = assignedX;
+    }
+
+    // stateGate 안에서만 호출
+    private (float X, float Y) GetSpawnPositionUnsafe(PlayerRoomState player)
     {
         float cellSize = State.Terrain.CellSize;
-        float cellX = State.Terrain.SpawnAreaOriginX +
-                      State.Terrain.SpawnAreaWidth * 0.5f;
-        float cellY = State.Terrain.SpawnAreaOriginY + 0.5f;
+        float cellX = player.AssignedSpawnCellX + 0.5f;
+        float cellY = State.Terrain.SpawnAreaOriginY + 1.5f;
         return (
             State.Terrain.OriginX + cellX * cellSize,
             State.Terrain.OriginY + cellY * cellSize);

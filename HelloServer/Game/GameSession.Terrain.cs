@@ -42,6 +42,7 @@ public sealed partial class GameSession
                 return Fail("terrain.collapse_pending", "낙하 중인 위치에는 사망 보관함을 만들 수 없습니다.", out errorCode, out errorMessage);
             if (State.Terrain.Cells.TryGetValue(deathCell, out TerrainCellRoomState existing) &&
                 (existing.TileTypeID == (int)ServerTerrainTileType.Bedrock ||
+                 existing.TileTypeID == (int)ServerTerrainTileType.SpawnPlatform ||
                  existing.TileTypeID == (int)ServerTerrainTileType.DeathLoot))
                 return Fail("terrain.invalid_death_loot", "사망 보관함을 만들 수 없는 지형입니다.", out errorCode, out errorMessage);
 
@@ -441,8 +442,9 @@ public sealed partial class GameSession
                     return Fail("terrain.collapse_pending", "이미 낙하 중인 지형입니다.", out errorCode, out errorMessage);
                 if (State.Terrain.Cells.TryGetValue(sourceCell, out TerrainCellRoomState cell) == false)
                     return Fail("terrain.collapse_conflict", "낙하 지형 원본 셀이 없습니다.", out errorCode, out errorMessage);
-                if (cell.TileTypeID == (int)ServerTerrainTileType.Bedrock)
-                    return Fail("terrain.collapse_invalid", "기반암은 낙하할 수 없습니다.", out errorCode, out errorMessage);
+                if (cell.TileTypeID == (int)ServerTerrainTileType.Bedrock ||
+                    cell.TileTypeID == (int)ServerTerrainTileType.SpawnPlatform)
+                    return Fail("terrain.collapse_invalid", "고정 지형은 낙하할 수 없습니다.", out errorCode, out errorMessage);
             }
 
             long collapseID = Interlocked.Increment(ref lastCollapseID);
@@ -550,14 +552,14 @@ public sealed partial class GameSession
                         out errorMessage);
                 }
 
-                if (sourceState.TileTypeID ==
-                    (int)ServerTerrainTileType.Bedrock)
+                if (sourceState.TileTypeID == (int)ServerTerrainTileType.Bedrock ||
+                    sourceState.TileTypeID == (int)ServerTerrainTileType.SpawnPlatform)
                 {
                     return FailAndRelease(
                         request.CollapseID,
                         pending,
                         "terrain.collapse_invalid",
-                        "기반암은 낙하 지형으로 이동할 수 없습니다.",
+                        "고정 지형은 낙하 지형으로 이동할 수 없습니다.",
                         out cancelledMessage,
                         out errorCode,
                         out errorMessage);
@@ -590,7 +592,9 @@ public sealed partial class GameSession
                 if (change.TileTypeID ==
                         (int)ServerTerrainTileType.Empty ||
                     change.TileTypeID ==
-                        (int)ServerTerrainTileType.Bedrock)
+                        (int)ServerTerrainTileType.Bedrock ||
+                    change.TileTypeID ==
+                        (int)ServerTerrainTileType.SpawnPlatform)
                 {
                     return FailAndRelease(
                         request.CollapseID,

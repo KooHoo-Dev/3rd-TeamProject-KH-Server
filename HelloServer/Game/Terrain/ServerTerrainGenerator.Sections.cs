@@ -110,5 +110,10 @@ public sealed partial class ServerTerrainGenerator
             map.SetTile(new GridCoord(areaMinX, y), ServerTerrainTileType.Bedrock);
             map.SetTile(new GridCoord(areaMaxX, y), ServerTerrainTileType.Bedrock);
         }
+
+        int platformMinX = areaMinX + profile.BoundaryThickness + profile.RespawnExitWidth;
+        int platformMaxX = platformMinX + profile.RespawnPlatformWidth - 1;
+        for (int x = platformMinX; x <= platformMaxX; x++)
+            map.SetTile(new GridCoord(x, areaMinY), ServerTerrainTileType.SpawnPlatform);
     }
 }

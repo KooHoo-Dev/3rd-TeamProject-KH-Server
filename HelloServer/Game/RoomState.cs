@@ -44,6 +44,7 @@ public sealed class PlayerRoomState
     public bool IsDebugMode { get; init; }
     public float DeathX { get; set; }
     public float DeathY { get; set; }
+    public int AssignedSpawnCellX { get; set; }
     public int EquippedPickaxeItemID { get; set; } = 2; // ID 2: 개발용 곡괭이
 }
 

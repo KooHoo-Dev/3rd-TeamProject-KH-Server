@@ -24,6 +24,8 @@ public class WelcomeMessage : PacketHeader
     public string RoomCode { get; set; }
     public User User { get; set; }
     public User[] Users { get; set; }
+    public float SpawnX { get; set; }
+    public float SpawnY { get; set; }
 }
 
 public class JoinMessage : PacketHeader
