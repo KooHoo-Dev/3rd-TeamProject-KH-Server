@@ -55,6 +55,19 @@ public sealed partial class GameSession
         }
     }
 
+    public int GetElapsedGameSeconds()
+    {
+        lock (stateGate)
+        {
+            long startedAt = State.GameFlow.StartedAtUnixMilliseconds;
+            if (startedAt <= 0) return 0;
+            long now = State.GameFlow.IsEnded && State.GameFlow.EndedAtUnixMilliseconds > 0
+                ? State.GameFlow.EndedAtUnixMilliseconds
+                : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return (int)Math.Min(int.MaxValue, Math.Max(0L, now - startedAt) / 1000L);
+        }
+    }
+
     public GameSession(string roomCode, int expectedPlayerCount)
     {
         State.GameFlow.ExpectedPlayerCount = Math.Clamp(expectedPlayerCount, 1, LobbyHub.MaximumPlayers);

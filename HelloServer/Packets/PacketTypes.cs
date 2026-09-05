@@ -21,6 +21,8 @@ public static class PacketTypes
     public const string PlayerDamage = "player.damage";
     public const string PlayerRespawnRequest = "player.respawn_request";
     public const string ChatSend = "chat.send";
+    public const string ChatMessage = "chat.message";
+    public const string ChatSystem = "chat.system";
 
     // refactor/server-sync-foundation 클라이언트 계약과 동일한 Type 값입니다.
     public const string MapSession = "map_session";

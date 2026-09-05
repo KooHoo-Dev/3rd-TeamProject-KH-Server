@@ -78,6 +78,24 @@ public sealed class Room
     {
         if (broadcastQueue.Writer.TryWrite(new(message, exceptId, Stopwatch.GetTimestamp())) == false)
             throw new InvalidOperationException("Room broadcast queue is closed.");
+
+        ChatSystemMessage systemMessage = message switch
+        {
+            GameStartedMessage => new ChatSystemMessage
+            {
+                ElapsedSeconds = 0,
+                Text = "모든 플레이어가 준비되었습니다. 잠시 후 게임이 시작됩니다."
+            },
+            GameEndedMessage => new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = "게임이 종료되었습니다."
+            },
+            _ => null,
+        };
+        if (systemMessage != null &&
+            broadcastQueue.Writer.TryWrite(new(systemMessage, null, Stopwatch.GetTimestamp())) == false)
+            throw new InvalidOperationException("Room broadcast queue is closed.");
     }
 
     private async Task BroadcastQueueLoopAsync()
