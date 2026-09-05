@@ -13,6 +13,7 @@ public static class PacketTypes
     public const string PlayerMove = "player.move";
     public const string PlayerReady = "player.ready";
     public const string GameStarted = "game.started";
+    public const string GameEnded = "game.ended";
     public const string PlayerHealthSnapshot = "player.health_snapshot";
     public const string PlayerHealthChanged = "player.health_changed";
     public const string PlayerDied = "player.died";
@@ -42,6 +43,8 @@ public static class PacketTypes
     public const string DynamiteExploded = "dynamite.exploded";
 
     public const string InventorySnapshot = "inventory.snapshot";
+    public const string InventorySell = "inventory.sell";
+    public const string InventoryDebugGold = "inventory.debug_gold";
     public const string TerrainDeathLootRequest = "terrain_death_loot";
     public const string Error = "error";
 }

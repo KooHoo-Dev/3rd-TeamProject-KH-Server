@@ -13,6 +13,7 @@ public sealed partial class GameSession
     private const int DebugGoldItemID = 100;
     private const int DebugDynamiteItemID = 1;
     private const int DebugItemQuantity = 1_000;
+    private const int DebugGoldGrantQuantity = 10_000;
 
     // 지형과 아이템 표는 방마다 새로 읽을 이유가 없습니다.
     // 한 번만 읽고 모든 방이 나눠 씁니다. 읽은 뒤로는 아무도 바꾸지 않습니다.
@@ -28,6 +29,10 @@ public sealed partial class GameSession
     private static readonly ServerPlayerConfig playerConfig =
         ServerPlayerConfig.Load(Path.Combine(
             AppContext.BaseDirectory, "Data", "Player", "playerconfig.json"));
+
+    private static readonly ServerGameConfig gameConfig =
+        ServerGameConfig.Load(Path.Combine(
+            AppContext.BaseDirectory, "Data", "Game", "gameconfig.json"));
 
     private readonly object stateGate = new();
     private long lastDropID;
@@ -70,6 +75,8 @@ public sealed partial class GameSession
 
             State.GameFlow.IsStarted = true;
             State.GameFlow.StartedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            State.GameFlow.EndsAtUnixMilliseconds =
+                State.GameFlow.StartedAtUnixMilliseconds + gameConfig.GameDurationSeconds * 1000L;
             newlyStarted = true;
             startedMessage = CreateGameStartedMessageUnsafe();
             return true;
@@ -79,6 +86,9 @@ public sealed partial class GameSession
     private GameStartedMessage CreateGameStartedMessageUnsafe() => new()
     {
         StartedAtUnixMilliseconds = State.GameFlow.StartedAtUnixMilliseconds,
+        EndsAtUnixMilliseconds = State.GameFlow.EndsAtUnixMilliseconds,
+        GameDurationSeconds = gameConfig.GameDurationSeconds,
+        VictoryGold = gameConfig.VictoryGold,
     };
 
     public void AddPlayer(User user, bool debugMode)
@@ -86,6 +96,7 @@ public sealed partial class GameSession
         State.Players[user.Id] = new PlayerRoomState
         {
             Id = user.Id,
+            NickName = user.NickName,
             CurrentHealth = playerConfig.InitialHealth,
             MaxHealth = playerConfig.MaxHealth,
             IsDebugMode = debugMode,
@@ -375,11 +386,13 @@ public sealed partial class GameSession
         WorldItemPickupRequest request,
         out WorldItemRemovedMessage removedMessage,
         out InventorySnapshotMessage inventoryMessage,
+        out GameEndedMessage endedMessage,
         out string errorCode,
         out string errorMessage)
     {
         removedMessage = null;
         inventoryMessage = null;
+        endedMessage = null;
         errorCode = null;
         errorMessage = null;
 
@@ -430,8 +443,172 @@ public sealed partial class GameSession
                 CollectedByPlayerID = playerId,
             };
             inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
+            endedMessage = TryEndGameForGoldUnsafe(playerId, inventory);
             return true;
         }
+    }
+
+    public bool TrySellInventory(
+        string playerId,
+        InventorySellRequest request,
+        out InventorySnapshotMessage inventoryMessage,
+        out GameEndedMessage endedMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        inventoryMessage = null;
+        endedMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(request?.RequestId))
+            return Fail("inventory.invalid_sell", "유효하지 않은 판매 요청입니다.", out errorCode, out errorMessage);
+
+        lock (stateGate)
+        {
+            if (State.GameFlow.IsStarted == false || State.GameFlow.IsEnded)
+                return Fail("game.not_active", "진행 중인 게임에서만 판매할 수 있습니다.", out errorCode, out errorMessage);
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (player.IsDead)
+                return Fail("player.dead", "사망 상태에서는 판매할 수 없습니다.", out errorCode, out errorMessage);
+            if (IsInSpawnAreaUnsafe(player.X, player.Y) == false)
+                return Fail("inventory.sell_outside_spawn", "스폰 구역에서만 판매할 수 있습니다.", out errorCode, out errorMessage);
+            if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
+                return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
+
+            long earnedGold = 0;
+            List<int> soldItemIDs = new();
+            foreach ((int itemID, int quantity) in inventory.Quantities)
+            {
+                if (quantity <= 0 || itemCatalog.TryGetItem(itemID, out ServerItemCatalog.ItemDefinition item) == false ||
+                    item.ItemType != "Exchange")
+                    continue;
+
+                earnedGold += (long)item.Price * quantity;
+                if (earnedGold > int.MaxValue)
+                    return Fail("inventory.gold_overflow", "판매 골드가 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
+                soldItemIDs.Add(itemID);
+            }
+
+            int goldItemID = itemCatalog.GoldItemID;
+            int currentGold = inventory.Quantities.GetValueOrDefault(goldItemID);
+            if (earnedGold > int.MaxValue - currentGold)
+                return Fail("inventory.gold_overflow", "보유 골드가 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
+
+            foreach (int itemID in soldItemIDs)
+                inventory.Quantities.Remove(itemID);
+            if (earnedGold > 0)
+                inventory.Quantities[goldItemID] = currentGold + (int)earnedGold;
+
+            inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
+            endedMessage = TryEndGameForGoldUnsafe(playerId, inventory);
+            return true;
+        }
+    }
+
+    private GameEndedMessage TryEndGameForGoldUnsafe(
+        string playerId,
+        PlayerInventoryRoomState inventory)
+    {
+        if (State.GameFlow.IsStarted == false || State.GameFlow.IsEnded ||
+            inventory.Quantities.GetValueOrDefault(itemCatalog.GoldItemID) < gameConfig.VictoryGold)
+            return null;
+
+        return EndGameUnsafe("gold_target", new[] { playerId });
+    }
+
+    public bool TryGrantDebugGold(
+        string playerId,
+        InventoryDebugGoldRequest request,
+        out InventorySnapshotMessage inventoryMessage,
+        out GameEndedMessage endedMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        inventoryMessage = null;
+        endedMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(request?.RequestId))
+            return Fail("inventory.invalid_debug_gold", "유효하지 않은 디버그 골드 요청입니다.", out errorCode, out errorMessage);
+
+        lock (stateGate)
+        {
+            if (State.GameFlow.IsStarted == false || State.GameFlow.IsEnded)
+                return Fail("game.not_active", "진행 중인 게임에서만 골드를 지급할 수 있습니다.", out errorCode, out errorMessage);
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (player.IsDebugMode == false)
+                return Fail("player.debug_not_enabled", "DebugMode에서만 골드를 지급할 수 있습니다.", out errorCode, out errorMessage);
+            if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
+                return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
+
+            int goldItemID = itemCatalog.GoldItemID;
+            int currentGold = inventory.Quantities.GetValueOrDefault(goldItemID);
+            if (currentGold > int.MaxValue - DebugGoldGrantQuantity)
+                return Fail("inventory.gold_overflow", "보유 골드가 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
+
+            inventory.Quantities[goldItemID] = currentGold + DebugGoldGrantQuantity;
+            inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
+            endedMessage = TryEndGameForGoldUnsafe(playerId, inventory);
+            return true;
+        }
+    }
+
+    public GameEndedMessage TryEndGameForTime(long nowUnixMilliseconds)
+    {
+        lock (stateGate)
+        {
+            if (State.GameFlow.IsStarted == false || State.GameFlow.IsEnded ||
+                nowUnixMilliseconds < State.GameFlow.EndsAtUnixMilliseconds)
+                return null;
+
+            int goldItemID = itemCatalog.GoldItemID;
+            int highestGold = State.Players.Keys
+                .Select(playerId => State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory)
+                    ? inventory.Quantities.GetValueOrDefault(goldItemID)
+                    : 0)
+                .DefaultIfEmpty(0)
+                .Max();
+            string[] winners = State.Players.Keys
+                .Where(playerId => State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) &&
+                    inventory.Quantities.GetValueOrDefault(goldItemID) == highestGold)
+                .OrderBy(playerId => playerId, StringComparer.Ordinal)
+                .ToArray();
+            return EndGameUnsafe("time_limit", winners);
+        }
+    }
+
+    private GameEndedMessage EndGameUnsafe(string reason, string[] winnerPlayerIDs)
+    {
+        if (State.GameFlow.IsEnded) return null;
+
+        State.GameFlow.IsEnded = true;
+        State.GameFlow.EndedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        State.GameFlow.EndReason = reason;
+        State.GameFlow.WinnerPlayerIDs = winnerPlayerIDs;
+        int goldItemID = itemCatalog.GoldItemID;
+
+        return new GameEndedMessage
+        {
+            Reason = reason,
+            WinnerPlayerIDs = winnerPlayerIDs,
+            EndedAtUnixMilliseconds = State.GameFlow.EndedAtUnixMilliseconds,
+            Players = State.Players.Values
+                .Select(player => new GameResultPlayerDto
+                {
+                    PlayerID = player.Id,
+                    NickName = player.NickName,
+                    Gold = State.Inventory.Players.TryGetValue(player.Id, out PlayerInventoryRoomState inventory)
+                        ? inventory.Quantities.GetValueOrDefault(goldItemID)
+                        : 0,
+                })
+                .OrderByDescending(player => player.Gold)
+                .ThenBy(player => player.PlayerID, StringComparer.Ordinal)
+                .ToArray(),
+        };
     }
 
     public bool TryDropWorldItem(

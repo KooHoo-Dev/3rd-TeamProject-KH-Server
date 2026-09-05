@@ -19,6 +19,22 @@ public sealed class InventorySnapshotMessage : PacketHeader
     public int MaxWeight { get; set; }
 }
 
+public sealed class InventorySellRequest : PacketHeader
+{
+    public InventorySellRequest()
+    {
+        Type = PacketTypes.InventorySell;
+    }
+}
+
+public sealed class InventoryDebugGoldRequest : PacketHeader
+{
+    public InventoryDebugGoldRequest()
+    {
+        Type = PacketTypes.InventoryDebugGold;
+    }
+}
+
 public sealed class WorldItemDropDto
 {
     public string DropID { get; set; }

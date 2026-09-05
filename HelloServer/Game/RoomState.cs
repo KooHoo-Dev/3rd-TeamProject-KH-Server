@@ -20,11 +20,17 @@ public sealed class GameFlowRoomState
     public HashSet<string> ReadyPlayerIDs { get; } = new();
     public bool IsStarted { get; internal set; }
     public long StartedAtUnixMilliseconds { get; internal set; }
+    public long EndsAtUnixMilliseconds { get; internal set; }
+    public bool IsEnded { get; internal set; }
+    public long EndedAtUnixMilliseconds { get; internal set; }
+    public string EndReason { get; internal set; }
+    public string[] WinnerPlayerIDs { get; internal set; } = Array.Empty<string>();
 }
 
 public sealed class PlayerRoomState
 {
     public string Id { get; init; }
+    public string NickName { get; init; }
     public float X { get; set; }
     public float Y { get; set; }
     public int CurrentHealth { get; set; }

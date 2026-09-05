@@ -2,26 +2,19 @@ using System.Text.Json;
 
 namespace HelloServer;
 
-public sealed class WorldItemPickupPacketHandler : IPacketHandler
+public sealed class InventoryDebugGoldPacketHandler : IPacketHandler
 {
-    private static readonly string[] SupportedTypes =
-    {
-        PacketTypes.WorldItemPickup,
-    };
+    private static readonly string[] SupportedTypes = { PacketTypes.InventoryDebugGold };
 
     public IReadOnlyCollection<string> Types => SupportedTypes;
 
-    public async Task HandleAsync(
-        PacketContext context,
-        string json,
-        CancellationToken token)
+    public async Task HandleAsync(PacketContext context, string json, CancellationToken token)
     {
-        WorldItemPickupRequest request =
-            JsonSerializer.Deserialize<WorldItemPickupRequest>(json);
-        if (context.GameSession.TryPickup(
+        InventoryDebugGoldRequest request =
+            JsonSerializer.Deserialize<InventoryDebugGoldRequest>(json);
+        if (context.GameSession.TryGrantDebugGold(
                 context.User.Id,
                 request,
-                out WorldItemRemovedMessage removedMessage,
                 out InventorySnapshotMessage inventoryMessage,
                 out GameEndedMessage endedMessage,
                 out string errorCode,
@@ -36,7 +29,6 @@ public sealed class WorldItemPickupPacketHandler : IPacketHandler
             return;
         }
 
-        await context.BroadcastAsync(removedMessage);
         await context.SendAsync(inventoryMessage);
         if (endedMessage != null)
             await context.BroadcastAsync(endedMessage);

@@ -237,6 +237,14 @@ public sealed class Room
 
     public Task BroadcastStateAsync()
     {
+        GameEndedMessage endedMessage = gameSession.TryEndGameForTime(
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        if (endedMessage != null)
+        {
+            EnqueueBroadcast(endedMessage);
+            Console.WriteLine($"[{code}] 제한 시간 종료");
+        }
+
         if (!members.IsEmpty)
         {
             EnqueueBroadcast(new StateMessage
