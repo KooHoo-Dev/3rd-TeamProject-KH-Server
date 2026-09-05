@@ -16,6 +16,8 @@ public sealed class LobbyHub
         public string HostToken;
         public string HostClientId;
         public bool IsStarted;
+        public bool IsRematchLobby;
+        public int StartedPlayerCount;
         public DateTime LastTouchedUtc;
         public List<LobbyPlayerInfo> Players { get; } = new();  // 로비 화면과 동기화되는 순서, 호스트가 항상 0번
         public Dictionary<string, WebSocket> Members { get; } = new();
@@ -42,7 +44,7 @@ public sealed class LobbyHub
             if (lobbies.TryGetValue(code, out Lobby lobby) == false || lobby.IsStarted == false)
                 return false;
 
-            playerCount = lobby.Players.Count;
+            playerCount = lobby.StartedPlayerCount;
             return playerCount >= MinimumPlayers && playerCount <= MaximumPlayers;
         }
     }
@@ -119,6 +121,16 @@ public sealed class LobbyHub
                 return (null, null);
             }
         }
+        else if (header?.Type == "lobby.return")
+        {
+            LobbyReturnMessage request = JsonSerializer.Deserialize<LobbyReturnMessage>(json);
+            if (TryReturn(request?.RoomCode, request?.ClientID, request?.NickName,
+                    out code, out clientId, out error) == false)
+            {
+                await SendAsync(socket, new LobbyErrorMessage { Code = error }, token);
+                return (null, null);
+            }
+        }
         else
         {
             await SendAsync(socket, new LobbyErrorMessage { Code = "lobby.first_message_required" }, token);
@@ -176,6 +188,62 @@ public sealed class LobbyHub
         }
     }
 
+    private bool TryReturn(string rawCode, string rawClientId, string rawNickName,
+        out string code, out string clientId, out string error)
+    {
+        code = Normalize(rawCode);
+        clientId = null;
+        if (code == null) { error = "room.invalid_code"; return false; }
+        if (TryNormalizePlayer(rawClientId, rawNickName, out clientId, out string nickName, out error) == false)
+            return false;
+
+        lock (gate)
+        {
+            SweepExpiredUnsafe();
+            if (lobbies.TryGetValue(code, out Lobby lobby) == false)
+            {
+                error = "room.not_found";
+                return false;
+            }
+
+            if (lobby.IsStarted == false && lobby.IsRematchLobby == false)
+            {
+                error = "room.not_started";
+                return false;
+            }
+
+            if (lobby.IsStarted)
+            {
+                lobby.IsStarted = false;
+                lobby.IsRematchLobby = true;
+                lobby.StartedPlayerCount = 0;
+                lobby.Members.Clear();
+                lobby.Players.Clear();
+                lobby.HostClientId = clientId;
+                lobby.HostToken = Guid.NewGuid().ToString("N");
+            }
+
+            string returningClientId = clientId;
+            int playerIndex = lobby.Players.FindIndex(player => player.ClientID == returningClientId);
+            if (playerIndex < 0)
+            {
+                if (lobby.Players.Count >= MaximumPlayers)
+                {
+                    error = "room.full";
+                    return false;
+                }
+                lobby.Players.Add(new LobbyPlayerInfo { ClientID = clientId, NickName = nickName });
+            }
+            else
+            {
+                lobby.Players[playerIndex] = new LobbyPlayerInfo { ClientID = clientId, NickName = nickName };
+            }
+            lobby.LastTouchedUtc = DateTime.UtcNow;
+            error = null;
+            return true;
+        }
+    }
+
     private bool Attach(string code, string clientId, WebSocket socket)
     {
         lock (gate)
@@ -196,10 +264,14 @@ public sealed class LobbyHub
         {
             if (lobbies.TryGetValue(code, out Lobby lobby) == false) { error = "room.not_found"; return false; }
             if (lobby.HostToken != hostToken) { error = "room.host_only"; return false; }
-            if (lobby.Players.Count < MinimumPlayers) { error = "room.not_enough_players"; return false; }
+            int connectedPlayers = lobby.Members.Count;
+            if (connectedPlayers < MinimumPlayers) { error = "room.not_enough_players"; return false; }
+            lobby.Players.RemoveAll(player => lobby.Members.ContainsKey(player.ClientID) == false);
             lobby.IsStarted = true;
+            lobby.IsRematchLobby = false;
+            lobby.StartedPlayerCount = connectedPlayers;
             lobby.LastTouchedUtc = DateTime.UtcNow;
-            Console.WriteLine($"[{code}] 대기방 시작 ({lobby.Players.Count}명)");
+            Console.WriteLine($"[{code}] 대기방 시작 ({connectedPlayers}명)");
             return true;
         }
     }
@@ -209,8 +281,9 @@ public sealed class LobbyHub
         lock (gate)
         {
             if (lobbies.TryGetValue(code, out Lobby lobby) == false) return;
-            if (lobby.Members.TryGetValue(clientId, out WebSocket current) && current == socket) lobby.Members.Remove(clientId);
-            if (lobby.IsStarted == false)
+            bool detachedCurrent = lobby.Members.TryGetValue(clientId, out WebSocket current) && current == socket;
+            if (detachedCurrent) lobby.Members.Remove(clientId);
+            if (detachedCurrent && lobby.IsStarted == false)
             {
                 lobby.Players.RemoveAll(player => player.ClientID == clientId);
                 if (lobby.Players.Count == 0) lobbies.Remove(code);

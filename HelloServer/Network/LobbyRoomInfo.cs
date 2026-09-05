@@ -54,6 +54,12 @@ public sealed class LobbyJoinMessage : LobbyJoinRequest
     public string RoomCode { get; set; }
 }
 
+public sealed class LobbyReturnMessage : LobbyJoinRequest
+{
+    public string Type { get; set; } = "lobby.return";
+    public string RoomCode { get; set; }
+}
+
 public sealed class LobbyStateMessage
 {
     public string Type { get; set; } = "lobby.state";
