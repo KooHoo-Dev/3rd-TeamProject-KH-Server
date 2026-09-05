@@ -15,10 +15,13 @@ public sealed class GameStartedMessage : PacketHeader
         Type = PacketTypes.GameStarted;
     }
 
+    public long ServerNowUnixMilliseconds { get; set; }
     public long StartedAtUnixMilliseconds { get; set; }
     public long EndsAtUnixMilliseconds { get; set; }
     public int GameDurationSeconds { get; set; }
     public int VictoryGold { get; set; }
+    public int ReadyDelaySeconds { get; set; }
+    public int CountdownSeconds { get; set; }
 }
 
 public sealed class GameResultPlayerDto

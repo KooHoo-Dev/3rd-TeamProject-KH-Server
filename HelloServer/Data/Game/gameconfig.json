@@ -1,4 +1,6 @@
 {
-  "GameDurationSeconds": 20,
-  "VictoryGold": 10000
+  "GameDurationSeconds": 600,
+  "VictoryGold": 10000,
+  "ReadyDelaySeconds": 2,
+  "CountdownSeconds": 3
 }

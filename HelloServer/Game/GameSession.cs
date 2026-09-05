@@ -41,6 +41,19 @@ public sealed partial class GameSession
     private readonly Dictionary<string, long> lastDamageRequestAtMilliseconds = new();
 
     public RoomState State { get; } = new();
+    public bool IsGameplayActive
+    {
+        get
+        {
+            lock (stateGate)
+            {
+                return State.GameFlow.IsStarted &&
+                       !State.GameFlow.IsEnded &&
+                       DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() >=
+                       State.GameFlow.StartedAtUnixMilliseconds;
+            }
+        }
+    }
 
     public GameSession(string roomCode, int expectedPlayerCount)
     {
@@ -74,7 +87,10 @@ public sealed partial class GameSession
                 return true;
 
             State.GameFlow.IsStarted = true;
-            State.GameFlow.StartedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            // 실제 스톱워치가 흐르기 시작할 미래 시각
+            State.GameFlow.StartedAtUnixMilliseconds =
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() +
+                (gameConfig.ReadyDelaySeconds + gameConfig.CountdownSeconds) * 1000L;
             State.GameFlow.EndsAtUnixMilliseconds =
                 State.GameFlow.StartedAtUnixMilliseconds + gameConfig.GameDurationSeconds * 1000L;
             newlyStarted = true;
@@ -85,10 +101,13 @@ public sealed partial class GameSession
 
     private GameStartedMessage CreateGameStartedMessageUnsafe() => new()
     {
+        ServerNowUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         StartedAtUnixMilliseconds = State.GameFlow.StartedAtUnixMilliseconds,
         EndsAtUnixMilliseconds = State.GameFlow.EndsAtUnixMilliseconds,
         GameDurationSeconds = gameConfig.GameDurationSeconds,
         VictoryGold = gameConfig.VictoryGold,
+        ReadyDelaySeconds = gameConfig.ReadyDelaySeconds,
+        CountdownSeconds = gameConfig.CountdownSeconds,
     };
 
     public void AddPlayer(User user, bool debugMode)

@@ -7,13 +7,19 @@ public sealed class ServerGameConfig
 {
     public int GameDurationSeconds { get; set; }
     public int VictoryGold { get; set; }
+    public int ReadyDelaySeconds { get; set; }
+    public int CountdownSeconds { get; set; }
 
     public static ServerGameConfig Load(string path)
     {
         ServerGameConfig config = JsonSerializer.Deserialize<ServerGameConfig>(
             File.ReadAllText(path));
 
-        if (config == null || config.GameDurationSeconds <= 0 || config.VictoryGold <= 0)
+        if (config == null ||
+            config.GameDurationSeconds <= 0 ||
+            config.VictoryGold <= 0 ||
+            config.ReadyDelaySeconds < 0 ||
+            config.CountdownSeconds < 0)
             throw new InvalidDataException($"게임 진행 설정이 올바르지 않습니다: {path}");
 
         return config;

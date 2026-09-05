@@ -4,6 +4,28 @@ namespace HelloServer;
 
 public sealed class PacketDispatcher
 {
+    // 게임플레이 패킷 집합
+    private static readonly HashSet<string> GameplayPacketTypes = new(
+        StringComparer.Ordinal)
+    {
+        PacketTypes.PlayerDamage,
+        PacketTypes.PlayerRespawnRequest,
+
+        PacketTypes.TerrainExcavationRequest,
+        PacketTypes.TerrainDeathLootRequest,
+        PacketTypes.TerrainCollapseStartRequest,
+        PacketTypes.TerrainCollapsePlacementRequest,
+
+        PacketTypes.WorldItemPickup,
+        PacketTypes.WorldItemDrop,
+
+        PacketTypes.InventorySell,
+        PacketTypes.InventoryDebugGold,
+
+        PacketTypes.DynamiteThrow,
+        PacketTypes.DynamiteExplodeRequest,
+    };
+
     private readonly Dictionary<string, IPacketHandler> handlers =
         new Dictionary<string, IPacketHandler>(StringComparer.Ordinal);
 
@@ -45,6 +67,17 @@ public sealed class PacketDispatcher
         {
             Report(context, header.Type);
             return Task.CompletedTask;
+        }
+
+        // 등록된 패킷인지 확인한 다음, 실제 핸들러를 실행하기 전에 차단
+        if (GameplayPacketTypes.Contains(header.Type) &&
+            context.GameSession.IsGameplayActive == false)
+        {
+            return context.SendAsync(new ErrorMessage
+            {
+                Code = "game.not_active",
+                Message = "게임 카운트다운이 끝나기 전에는 사용할 수 없습니다."
+            });
         }
 
         return handler.HandleAsync(context, json, token);
