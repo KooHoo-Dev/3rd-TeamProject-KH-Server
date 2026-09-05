@@ -285,8 +285,18 @@ public sealed class LobbyHub
             if (detachedCurrent) lobby.Members.Remove(clientId);
             if (detachedCurrent && lobby.IsStarted == false)
             {
+                bool hostLeft = lobby.HostClientId == clientId;
                 lobby.Players.RemoveAll(player => player.ClientID == clientId);
-                if (lobby.Players.Count == 0) lobbies.Remove(code);
+                if (lobby.Players.Count == 0)
+                {
+                    lobbies.Remove(code);
+                }
+                else if (hostLeft)
+                {
+                    // 플레이어 목록은 입장 순서이므로, 다음 슬롯의 플레이어에게 호스트를 넘긴다.
+                    lobby.HostClientId = lobby.Players[0].ClientID;
+                    lobby.HostToken = Guid.NewGuid().ToString("N");
+                }
             }
             lobby.LastTouchedUtc = DateTime.UtcNow;
         }

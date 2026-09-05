@@ -40,6 +40,7 @@ public sealed class Room
     private readonly int logMovesPerSecond;
     private readonly GameSession gameSession;
     private readonly PacketDispatcher packetDispatcher;
+    private int gameplayStartAnnounced;
 
     public bool IsGameStarted => gameSession.State.GameFlow.IsStarted;
 
@@ -81,6 +82,16 @@ public sealed class Room
 
         ChatSystemMessage systemMessage = message switch
         {
+            JoinMessage joined when joined.User != null => new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = $"{joined.User.NickName}님이 게임에 들어왔습니다."
+            },
+            LeaveMessage leaved when leaved.User != null => new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = $"{leaved.User.NickName}님이 게임에서 나갔습니다."
+            },
             GameStartedMessage => new ChatSystemMessage
             {
                 ElapsedSeconds = 0,
@@ -255,6 +266,16 @@ public sealed class Room
 
     public Task BroadcastStateAsync()
     {
+        if (gameSession.IsGameplayActive &&
+            Interlocked.Exchange(ref gameplayStartAnnounced, 1) == 0)
+        {
+            EnqueueBroadcast(new ChatSystemMessage
+            {
+                ElapsedSeconds = 0,
+                Text = "게임이 시작되었습니다."
+            });
+        }
+
         GameEndedMessage endedMessage = gameSession.TryEndGameForTime(
             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         if (endedMessage != null)
@@ -391,7 +412,10 @@ public sealed class Room
                 if (cancelled != null) EnqueueBroadcast(cancelled);
             });
 
-            EnqueueBroadcast(new LeaveMessage { Id = member.User.Id }, member.User.Id);
+            EnqueueBroadcast(new LeaveMessage
+            {
+                User = member.User,
+            }, member.User.Id);
         }
         finally
         {

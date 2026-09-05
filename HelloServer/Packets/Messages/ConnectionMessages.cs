@@ -43,5 +43,5 @@ public class LeaveMessage : PacketHeader
         Type = PacketTypes.Leave;
     }
 
-    public string Id { get; set; }
+    public User User { get; set; }
 }
