@@ -41,6 +41,8 @@ public sealed class Room
     private readonly GameSession gameSession;
     private readonly PacketDispatcher packetDispatcher;
     private int gameplayStartAnnounced;
+    private int oneMinuteRemainingAnnounced;
+    private int tenSecondsRemainingAnnounced;
 
     public bool IsGameStarted => gameSession.State.GameFlow.IsStarted;
 
@@ -92,10 +94,32 @@ public sealed class Room
                 ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
                 Text = $"{leaved.User.NickName}님이 게임에서 나갔습니다."
             },
+            PlayerDiedMessage died when died.Player != null => new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = $"{gameSession.GetPlayerNickName(died.Player.PlayerID)}님이 사망했습니다."
+            },
+            PlayerRespawnedMessage respawned when respawned.Player != null => new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = $"{gameSession.GetPlayerNickName(respawned.Player.PlayerID)}님이 부활했습니다."
+            },
             GameStartedMessage => new ChatSystemMessage
             {
                 ElapsedSeconds = 0,
                 Text = "모든 플레이어가 준비되었습니다. 잠시 후 게임이 시작됩니다."
+            },
+            GameEndedMessage ended when ended.Reason == "time_limit" => new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = "제한 시간이 종료되어 게임이 종료되었습니다."
+            },
+            GameEndedMessage ended when ended.Reason == "gold_target" => new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = ended.WinnerPlayerIDs is { Length: > 0 }
+                    ? $"{string.Join(", ", ended.WinnerPlayerIDs.Select(gameSession.GetPlayerNickName))}님이 목표 골드를 달성하여 게임이 종료되었습니다."
+                    : "목표 골드가 달성되어 게임이 종료되었습니다."
             },
             GameEndedMessage => new ChatSystemMessage
             {
@@ -273,6 +297,26 @@ public sealed class Room
             {
                 ElapsedSeconds = 0,
                 Text = "게임이 시작되었습니다."
+            });
+        }
+
+        int remainingSeconds = gameSession.GetRemainingGameSeconds();
+        if (remainingSeconds is > 10 and <= 60 &&
+            Interlocked.Exchange(ref oneMinuteRemainingAnnounced, 1) == 0)
+        {
+            EnqueueBroadcast(new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = "게임 종료까지 1분 남았습니다."
+            });
+        }
+        else if (remainingSeconds is >= 0 and <= 10 &&
+                 Interlocked.Exchange(ref tenSecondsRemainingAnnounced, 1) == 0)
+        {
+            EnqueueBroadcast(new ChatSystemMessage
+            {
+                ElapsedSeconds = gameSession.GetElapsedGameSeconds(),
+                Text = "게임 종료까지 10초 남았습니다."
             });
         }
 

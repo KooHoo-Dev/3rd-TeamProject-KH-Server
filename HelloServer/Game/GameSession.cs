@@ -68,6 +68,33 @@ public sealed partial class GameSession
         }
     }
 
+    public int GetRemainingGameSeconds()
+    {
+        lock (stateGate)
+        {
+            if (State.GameFlow.IsStarted == false || State.GameFlow.IsEnded ||
+                State.GameFlow.EndsAtUnixMilliseconds <= 0)
+                return -1;
+
+            long remainingMilliseconds = State.GameFlow.EndsAtUnixMilliseconds -
+                                         DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return (int)Math.Min(
+                int.MaxValue,
+                Math.Max(0d, Math.Ceiling(remainingMilliseconds / 1000d)));
+        }
+    }
+
+    public string GetPlayerNickName(string playerId)
+    {
+        lock (stateGate)
+        {
+            return State.Players.TryGetValue(playerId, out PlayerRoomState player) &&
+                   string.IsNullOrWhiteSpace(player.NickName) == false
+                ? player.NickName
+                : playerId;
+        }
+    }
+
     public GameSession(string roomCode, int expectedPlayerCount)
     {
         State.GameFlow.ExpectedPlayerCount = Math.Clamp(expectedPlayerCount, 1, LobbyHub.MaximumPlayers);
