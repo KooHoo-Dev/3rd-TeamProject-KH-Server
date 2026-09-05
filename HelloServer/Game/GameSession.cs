@@ -278,14 +278,21 @@ public sealed partial class GameSession
         }
     }
 
-    public void MovePlayer(string playerId, float x, float y)
+    public void MovePlayer(string playerId, MoveMessage move)
     {
-        if (float.IsFinite(x) == false || float.IsFinite(y) == false) return;
+        if (move == null || float.IsFinite(move.X) == false || float.IsFinite(move.Y) == false ||
+            float.IsFinite(move.VelocityX) == false || float.IsFinite(move.VelocityY) == false)
+            return;
         if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
             return;
 
-        player.X = x;
-        player.Y = y;
+        player.X = move.X;
+        player.Y = move.Y;
+        player.VelocityX = move.VelocityX;
+        player.VelocityY = move.VelocityY;
+        player.IsGrounded = move.IsGrounded;
+        player.IsClimbing = move.IsClimbing;
+        player.IsBuried = move.IsBuried;
     }
 
     public bool TryApplyPlayerDamage(
@@ -396,10 +403,34 @@ public sealed partial class GameSession
                 Id = player.Id,
                 X = player.X,
                 Y = player.Y,
+                VelocityX = player.VelocityX,
+                VelocityY = player.VelocityY,
+                IsGrounded = player.IsGrounded,
+                IsClimbing = player.IsClimbing,
+                IsBuried = player.IsBuried,
+                IsDead = player.IsDead,
             });
         }
 
         return states.ToArray();
+    }
+
+    public PlayerActionMessage CreateMiningAction(string playerId, GridCoord targetCell)
+    {
+        lock (stateGate)
+        {
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return null;
+
+            float targetWorldX = State.Terrain.OriginX +
+                                 (targetCell.X + 0.5f) * State.Terrain.CellSize;
+            return new PlayerActionMessage
+            {
+                PlayerID = playerId,
+                Action = "mine",
+                DirectionX = targetWorldX < player.X ? -1f : 1f,
+            };
+        }
     }
 
     public bool TryCreateMapSessionMessage(out MapSessionMessage message)

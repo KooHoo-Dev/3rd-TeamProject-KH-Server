@@ -33,6 +33,11 @@ public sealed class PlayerRoomState
     public string NickName { get; init; }
     public float X { get; set; }
     public float Y { get; set; }
+    public float VelocityX { get; set; }
+    public float VelocityY { get; set; }
+    public bool IsGrounded { get; set; }
+    public bool IsClimbing { get; set; }
+    public bool IsBuried { get; set; }
     public int CurrentHealth { get; set; }
     public int MaxHealth { get; set; }
     public bool IsDead { get; set; }

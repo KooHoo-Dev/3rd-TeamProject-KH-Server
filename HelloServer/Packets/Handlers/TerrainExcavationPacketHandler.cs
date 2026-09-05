@@ -36,6 +36,10 @@ public sealed class TerrainExcavationPacketHandler : IPacketHandler
 
                 return;
             }
+            PlayerActionMessage action = context.GameSession.CreateMiningAction(
+                context.User.Id,
+                request.TargetCell);
+            if (action != null) context.EnqueueBroadcast(action);
             context.EnqueueBroadcast(batch);
 
             foreach (WorldItemSpawnedMessage spawnedMessage in spawnedMessages)

@@ -18,7 +18,7 @@ public sealed class PlayerMovePacketHandler : IPacketHandler
         CancellationToken token)
     {
         MoveMessage move = JsonSerializer.Deserialize<MoveMessage>(json);
-        context.GameSession.MovePlayer(context.User.Id, move.X, move.Y);
+        context.GameSession.MovePlayer(context.User.Id, move);
         context.RecordMove(move);
         return Task.CompletedTask;
     }
