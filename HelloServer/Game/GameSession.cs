@@ -418,7 +418,8 @@ public sealed partial class GameSession
     {
         float cellSize = State.Terrain.CellSize;
         float cellX = player.AssignedSpawnCellX + 0.5f;
-        float cellY = State.Terrain.SpawnAreaOriginY + 1.5f;
+        // 플레이어 Collider가 플랫폼 EdgeCollider와 겹치지 않도록 한 셀 위로 설정
+        float cellY = State.Terrain.SpawnAreaOriginY + 2.5f;
         return (
             State.Terrain.OriginX + cellX * cellSize,
             State.Terrain.OriginY + cellY * cellSize);
