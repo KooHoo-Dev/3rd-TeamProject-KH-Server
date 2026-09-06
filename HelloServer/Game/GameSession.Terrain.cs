@@ -427,16 +427,23 @@ public sealed partial class GameSession
         if (request?.IsValid() != true)
             return Fail("terrain.collapse_invalid", "유효하지 않은 낙하 지형 시작 요청입니다.", out errorCode, out errorMessage);
 
-        // 서버 상태와 무관한 요청 좌표 중복 검사와 정렬
-        HashSet<GridCoord> sourceCells = request.SourceCells.ToHashSet();
-        if (sourceCells.Count != request.SourceCells.Count)
-            return Fail("terrain.collapse_invalid", "낙하 지형 좌표가 중복되었습니다.", out errorCode, out errorMessage);
+        List<HashSet<GridCoord>> sourceGroups = new(request.Groups.Count);
+        HashSet<GridCoord> allSourceCells = new();
+        foreach (TerrainCollapseStartGroupDto group in request.Groups)
+        {
+            HashSet<GridCoord> sourceCells = group.SourceCells.ToHashSet();
+            if (sourceCells.Count != group.SourceCells.Count ||
+                allSourceCells.Overlaps(sourceCells))
+                return Fail("terrain.collapse_invalid", "낙하 지형 좌표가 중복되었습니다.", out errorCode, out errorMessage);
 
-        List<GridCoord> orderedSourceCells = sourceCells.OrderBy(cell => cell).ToList();
+            allSourceCells.UnionWith(sourceCells);
+            sourceGroups.Add(sourceCells);
+        }
 
         lock (stateGate)
         {
-            foreach (GridCoord sourceCell in sourceCells)
+            // 일부 그룹만 예약되는 상태를 막기 위해 전체를 먼저 검증
+            foreach (GridCoord sourceCell in allSourceCells)
             {
                 if (State.Terrain.ReservedCollapseCells.Contains(sourceCell))
                     return Fail("terrain.collapse_pending", "이미 낙하 중인 지형입니다.", out errorCode, out errorMessage);
@@ -447,26 +454,34 @@ public sealed partial class GameSession
                     return Fail("terrain.collapse_invalid", "고정 지형은 낙하할 수 없습니다.", out errorCode, out errorMessage);
             }
 
-            long collapseID = Interlocked.Increment(ref lastCollapseID);
-            PendingCollapseState pending = new()
-            {
-                CollapseID = collapseID,
-                OwnerPlayerID = playerId,
-                StartedRevision = State.Terrain.Revision,
-                StartedAtMilliseconds = Environment.TickCount64,
-                SourceCells = sourceCells,
-            };
-            State.Terrain.PendingCollapses.Add(collapseID, pending);
-            State.Terrain.ReservedCollapseCells.UnionWith(sourceCells);
-
-            started = new TerrainCollapseStartedMessage
+            TerrainCollapseStartedMessage message = new()
             {
                 RequestId = request.RequestId,
-                CollapseID = collapseID,
-                OwnerPlayerID = playerId,
-                StartedRevision = pending.StartedRevision,
-                SourceCells = orderedSourceCells,
             };
+
+            foreach (HashSet<GridCoord> sourceCells in sourceGroups)
+            {
+                long collapseID = Interlocked.Increment(ref lastCollapseID);
+                PendingCollapseState pending = new()
+                {
+                    CollapseID = collapseID,
+                    OwnerPlayerID = playerId,
+                    StartedRevision = State.Terrain.Revision,
+                    StartedAtMilliseconds = Environment.TickCount64,
+                    SourceCells = sourceCells,
+                };
+                State.Terrain.PendingCollapses.Add(collapseID, pending);
+                State.Terrain.ReservedCollapseCells.UnionWith(sourceCells);
+                message.Collapses.Add(new TerrainCollapseStartedDto
+                {
+                    CollapseID = collapseID,
+                    OwnerPlayerID = playerId,
+                    StartedRevision = pending.StartedRevision,
+                    SourceCells = sourceCells.OrderBy(cell => cell).ToList(),
+                });
+            }
+
+            started = message;
             return true;
         }
     }

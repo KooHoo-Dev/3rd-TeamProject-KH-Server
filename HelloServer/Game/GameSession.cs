@@ -8,10 +8,14 @@ public sealed partial class GameSession
     private const float MaximumReportedDamageDistance = 3f;
     private const int MaximumReportedDamage = 500;
     private const long MinimumDamageRequestIntervalMilliseconds = 100;
+    private const long MinimumHealRequestIntervalMilliseconds = 100;
     private const long ManualDropPickupDelayMilliseconds = 2_000;
     private const float MaximumDynamiteStartDistance = 1.5f;
+
     private const int DebugGoldItemID = 100;
-    private const int DebugDynamiteItemID = 1;
+    private const int DebugDynamiteItemID = 50;
+    private const int InitialPickaxeItemID = 0;
+    private const int DebugPickaxeItemID = 99;
     private const int DebugItemQuantity = 1_000;
     private const int DebugGoldGrantQuantity = 10_000;
 
@@ -39,6 +43,7 @@ public sealed partial class GameSession
     private long lastCollapseID;
     private long lastDynamiteProjectileID;
     private readonly Dictionary<string, long> lastDamageRequestAtMilliseconds = new();
+    private readonly Dictionary<string, long> lastHealRequestAtMilliseconds = new();
 
     public RoomState State { get; } = new();
     public bool IsGameplayActive
@@ -161,12 +166,16 @@ public sealed partial class GameSession
                 CurrentHealth = playerConfig.InitialHealth,
                 MaxHealth = playerConfig.MaxHealth,
                 IsDebugMode = debugMode,
+                EquippedPickaxeItemID = debugMode
+                    ? DebugPickaxeItemID
+                    : InitialPickaxeItemID,
             };
             AssignSpawnCellUnsafe(player);
             (player.X, player.Y) = GetSpawnPositionUnsafe(player);
             State.Players[user.Id] = player;
 
             PlayerInventoryRoomState inventory = new();
+            inventory.Quantities[player.EquippedPickaxeItemID] = 1;
             if (debugMode)
             {
                 inventory.Quantities[DebugGoldItemID] = DebugItemQuantity;
@@ -262,6 +271,7 @@ public sealed partial class GameSession
             State.Inventory.Players.Remove(playerId);
             State.GameFlow.ReadyPlayerIDs.Remove(playerId);
             lastDamageRequestAtMilliseconds.Remove(playerId);
+            lastHealRequestAtMilliseconds.Remove(playerId);
 
             List<long> owned = State.Terrain.PendingCollapses
                 .Where(pair => pair.Value.OwnerPlayerID == playerId)
@@ -346,6 +356,54 @@ public sealed partial class GameSession
                     out diedMessage) == false)
                 return Fail("player.damage_ignored", "현재 플레이어는 피해를 받을 수 없습니다.", out errorCode, out errorMessage);
 
+            return true;
+        }
+    }
+
+    public bool TryApplyPlayerHealing(
+        string playerId,
+        PlayerHealRequest request,
+        out PlayerHealthChangedMessage changedMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        changedMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        if (request?.IsValid() != true)
+            return Fail("player.invalid_heal", "유효하지 않은 회복 요청입니다.", out errorCode, out errorMessage);
+
+        lock (stateGate)
+        {
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (request.Amount > player.MaxHealth)
+                return Fail("player.invalid_heal", "최대 체력을 초과하는 회복 요청입니다.", out errorCode, out errorMessage);
+            if (player.IsDead)
+                return Fail("player.heal_ignored", "사망한 플레이어는 회복할 수 없습니다.", out errorCode, out errorMessage);
+
+            long now = Environment.TickCount64;
+            if (lastHealRequestAtMilliseconds.TryGetValue(playerId, out long previous) &&
+                now - previous < MinimumHealRequestIntervalMilliseconds)
+                return Fail("player.heal_rate_limited", "회복 요청이 너무 빠릅니다.", out errorCode, out errorMessage);
+            lastHealRequestAtMilliseconds[playerId] = now;
+
+            float deltaX = player.X - request.X;
+            float deltaY = player.Y - request.Y;
+            if (deltaX * deltaX + deltaY * deltaY >
+                MaximumReportedDamageDistance * MaximumReportedDamageDistance)
+                return Fail("player.invalid_heal_position", "회복 위치가 플레이어와 너무 멉니다.", out errorCode, out errorMessage);
+
+            player.CurrentHealth = Math.Min(
+                player.MaxHealth,
+                player.CurrentHealth + request.Amount);
+            changedMessage = new PlayerHealthChangedMessage
+            {
+                RequestId = request.RequestId,
+                Player = CreatePlayerHealthState(player),
+                DamageType = "Healing",
+            };
             return true;
         }
     }

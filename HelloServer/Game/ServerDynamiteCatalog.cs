@@ -15,8 +15,8 @@ public static class ServerDynamiteCatalog
 
     private static readonly Dictionary<int, DynamiteDefinition> definitions = new()
     {
-        [1] = new DynamiteDefinition(
-            ItemID: 1,
+        [50] = new DynamiteDefinition(
+            ItemID: 50,
             ThrowSpeed: 10f,
             FuseTime: 5f,
             ExplosionRadius: 2.5f,

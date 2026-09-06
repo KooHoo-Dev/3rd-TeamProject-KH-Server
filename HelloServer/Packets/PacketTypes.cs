@@ -20,6 +20,7 @@ public static class PacketTypes
     public const string PlayerDied = "player.died";
     public const string PlayerRespawned = "player.respawned";
     public const string PlayerDamage = "player.damage";
+    public const string PlayerHeal = "player.heal";
     public const string PlayerRespawnRequest = "player.respawn_request";
     public const string ChatSend = "chat.send";
     public const string ChatMessage = "chat.message";

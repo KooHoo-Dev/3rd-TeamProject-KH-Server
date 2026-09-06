@@ -48,6 +48,23 @@ public sealed class PlayerDamageRequest : PacketHeader
     }
 }
 
+public sealed class PlayerHealRequest : PacketHeader
+{
+    public PlayerHealRequest()
+    {
+        Type = PacketTypes.PlayerHeal;
+    }
+
+    public int Amount { get; set; }
+    public float X { get; set; }
+    public float Y { get; set; }
+
+    public bool IsValid()
+    {
+        return Amount > 0 && float.IsFinite(X) && float.IsFinite(Y);
+    }
+}
+
 public sealed class PlayerDiedMessage : PacketHeader
 {
     public PlayerDiedMessage()

@@ -10,7 +10,7 @@ public sealed class TerrainExcavationRequest : PacketHeader
     public GridCoord TargetCell { get; set; }
     public int ItemID { get; set; }
     // 서버 곡괭이 DigPower 사용에 따른 DamageAmount 계약 제거
-    public bool IsValid() => ItemID > 0;
+    public bool IsValid() => ItemID >= 0;
 }
 
 public sealed class TerrainDeathLootRequest : PacketHeader
@@ -46,9 +46,16 @@ public sealed class TerrainCollapseStartRequest : PacketHeader
         Type = PacketTypes.TerrainCollapseStartRequest;
     }
 
-    public List<GridCoord> SourceCells { get; set; } = new();
+    public List<TerrainCollapseStartGroupDto> Groups { get; set; } = new();
 
-    public bool IsValid() => SourceCells.Count > 0;
+    public bool IsValid() =>
+        Groups is { Count: > 0 } &&
+        Groups.All(group => group?.SourceCells is { Count: > 0 });
+}
+
+public sealed class TerrainCollapseStartGroupDto
+{
+    public List<GridCoord> SourceCells { get; set; } = new();
 }
 
 public sealed class TerrainCollapseStartedMessage : PacketHeader
@@ -58,6 +65,11 @@ public sealed class TerrainCollapseStartedMessage : PacketHeader
         Type = PacketTypes.TerrainCollapseStarted;
     }
 
+    public List<TerrainCollapseStartedDto> Collapses { get; set; } = new();
+}
+
+public sealed class TerrainCollapseStartedDto
+{
     public long CollapseID { get; set; }
     public string OwnerPlayerID { get; set; }
     public uint StartedRevision { get; set; }

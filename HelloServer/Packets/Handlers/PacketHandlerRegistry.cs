@@ -11,6 +11,7 @@ public static class PacketHandlerRegistry
             new PlayerMovePacketHandler(),
             new PlayerReadyPacketHandler(),
             new PlayerDamagePacketHandler(),
+            new PlayerHealPacketHandler(),
             new PlayerRespawnPacketHandler(),
             new ChatSendPacketHandler(),
             new TerrainExcavationPacketHandler(),

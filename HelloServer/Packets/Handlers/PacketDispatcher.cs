@@ -9,6 +9,7 @@ public sealed class PacketDispatcher
         StringComparer.Ordinal)
     {
         PacketTypes.PlayerDamage,
+        PacketTypes.PlayerHeal,
         PacketTypes.PlayerRespawnRequest,
 
         PacketTypes.TerrainExcavationRequest,
