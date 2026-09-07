@@ -14,6 +14,7 @@ public sealed class InventorySnapshotMessage : PacketHeader
     }
 
     public string PlayerID { get; set; }
+    public int EquippedPickaxeItemID { get; set; }
     public InventoryItemDto[] Items { get; set; }
     public int CurrentWeight { get; set; }
     public int MaxWeight { get; set; }

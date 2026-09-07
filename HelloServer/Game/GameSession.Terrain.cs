@@ -449,6 +449,8 @@ public sealed partial class GameSession
                     return Fail("terrain.collapse_pending", "이미 낙하 중인 지형입니다.", out errorCode, out errorMessage);
                 if (State.Terrain.Cells.TryGetValue(sourceCell, out TerrainCellRoomState cell) == false)
                     return Fail("terrain.collapse_conflict", "낙하 지형 원본 셀이 없습니다.", out errorCode, out errorMessage);
+                if (cell.TileTypeID == (int)ServerTerrainTileType.Empty)
+                    return Fail("terrain.collapse_conflict", "빈 셀은 낙하 지형으로 시작할 수 없습니다.", out errorCode, out errorMessage);
                 if (cell.TileTypeID == (int)ServerTerrainTileType.Bedrock ||
                     cell.TileTypeID == (int)ServerTerrainTileType.SpawnPlatform)
                     return Fail("terrain.collapse_invalid", "고정 지형은 낙하할 수 없습니다.", out errorCode, out errorMessage);

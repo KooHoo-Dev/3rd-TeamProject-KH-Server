@@ -171,7 +171,6 @@ public sealed partial class GameSession
             State.Players[user.Id] = player;
 
             PlayerInventoryRoomState inventory = new();
-            inventory.Quantities[player.EquippedPickaxeItemID] = 1;
             if (debugMode)
             {
                 inventory.Quantities[100] = DebugItemQuantity;
@@ -755,21 +754,22 @@ public sealed partial class GameSession
                         return Fail("shop.pickaxe_not_upgrade", "현재 곡괭이보다 채굴력이 높은 곡괭이만 구매할 수 있습니다.", out errorCode, out errorMessage);
                 }
 
-                if (CanAddInventoryWeight(inventory, request.ItemID, 1) == false)
+                bool isPickaxe = item.ItemType == "Pickaxe";
+                if (isPickaxe == false && CanAddInventoryWeight(inventory, request.ItemID, 1) == false)
                     return Fail("inventory.overweight", "인벤토리 무게 한도를 초과했습니다.", out errorCode, out errorMessage);
 
                 int currentQuantity = inventory.Quantities.GetValueOrDefault(request.ItemID);
-                if (currentQuantity == int.MaxValue)
+                if (isPickaxe == false && currentQuantity == int.MaxValue)
                     return Fail("inventory.overflow", "아이템 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
 
                 inventory.Quantities[goldItemID] = currentGold - item.Price;
-                if (item.ItemType == "Pickaxe")
-                    inventory.Quantities.Remove(player.EquippedPickaxeItemID);
-                inventory.Quantities[request.ItemID] = currentQuantity + 1;
-                inventory.ShopPurchaseHistory.Push(new ShopPurchaseRecord(request.ItemID, 1, item.Price));
-
-                if (item.ItemType == "Pickaxe")
+                if (isPickaxe)
                     player.EquippedPickaxeItemID = request.ItemID;
+                else
+                {
+                    inventory.Quantities[request.ItemID] = currentQuantity + 1;
+                    inventory.ShopPurchaseHistory.Push(new ShopPurchaseRecord(request.ItemID, 1, item.Price));
+                }
             }
             else
             {
@@ -1404,6 +1404,9 @@ public sealed partial class GameSession
         {
             RequestId = requestId,
             PlayerID = playerId,
+            EquippedPickaxeItemID = State.Players.TryGetValue(playerId, out PlayerRoomState player)
+                ? player.EquippedPickaxeItemID
+                : 0,
             Items = items,
             CurrentWeight = GetInventoryWeight(inventory),
             MaxWeight = inventory?.MaxWeight ?? 0,
