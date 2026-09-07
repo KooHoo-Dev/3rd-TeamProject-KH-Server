@@ -12,12 +12,8 @@ public sealed partial class GameSession
     private const long ManualDropPickupDelayMilliseconds = 2_000;
     private const float MaximumDynamiteStartDistance = 1.5f;
 
-    private const int DebugGoldItemID = 100;
-    private const int DebugDynamiteItemID = 50;
-    private const int InitialPickaxeItemID = 0;
-    private const int DebugPickaxeItemID = 99;
-    private const int DebugItemQuantity = 1_000;
-    private const int DebugGoldGrantQuantity = 10_000;
+    private const int DebugItemQuantity = 1_00;
+    private const int DebugGoldGrantQuantity = 2_000;
 
     // 지형과 아이템 표는 방마다 새로 읽을 이유가 없습니다.
     // 한 번만 읽고 모든 방이 나눠 씁니다. 읽은 뒤로는 아무도 바꾸지 않습니다.
@@ -166,9 +162,7 @@ public sealed partial class GameSession
                 CurrentHealth = playerConfig.InitialHealth,
                 MaxHealth = playerConfig.MaxHealth,
                 IsDebugMode = debugMode,
-                EquippedPickaxeItemID = debugMode
-                    ? DebugPickaxeItemID
-                    : InitialPickaxeItemID,
+                EquippedPickaxeItemID = debugMode ? 99 : 0,
             };
             AssignSpawnCellUnsafe(player);
             (player.X, player.Y) = GetSpawnPositionUnsafe(player);
@@ -178,8 +172,10 @@ public sealed partial class GameSession
             inventory.Quantities[player.EquippedPickaxeItemID] = 1;
             if (debugMode)
             {
-                inventory.Quantities[DebugGoldItemID] = DebugItemQuantity;
-                inventory.Quantities[DebugDynamiteItemID] = DebugItemQuantity;
+                inventory.Quantities[100] = DebugItemQuantity;
+                inventory.Quantities[50] = DebugItemQuantity;
+                inventory.Quantities[51] = DebugItemQuantity;
+                inventory.Quantities[52] = DebugItemQuantity;
             }
 
             State.Inventory.Players.TryAdd(user.Id, inventory);
