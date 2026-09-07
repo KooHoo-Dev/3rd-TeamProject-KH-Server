@@ -25,6 +25,7 @@ public sealed class PacketDispatcher
 
         PacketTypes.DynamiteThrow,
         PacketTypes.DynamiteExplodeRequest,
+        PacketTypes.UsableItemUse,
     };
 
     private readonly Dictionary<string, IPacketHandler> handlers =

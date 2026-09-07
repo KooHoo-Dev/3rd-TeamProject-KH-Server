@@ -24,6 +24,7 @@ public static class PacketHandlerRegistry
             new InventoryDebugGoldPacketHandler(),
             new DynamiteThrowPacketHandler(),
             new DynamiteExplodePacketHandler(),
+            new UsableItemPacketHandler(),
         });
     }
 }

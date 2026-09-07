@@ -45,6 +45,8 @@ public static class PacketTypes
     public const string DynamiteThrown = "dynamite.thrown";
     public const string DynamiteExplodeRequest = "dynamite.explode_request";
     public const string DynamiteExploded = "dynamite.exploded";
+    public const string UsableItemUse = "item.use";
+    public const string UsableItemUsed = "item.used";
 
     public const string InventorySnapshot = "inventory.snapshot";
     public const string InventoryGoldRanking = "inventory.gold_ranking";

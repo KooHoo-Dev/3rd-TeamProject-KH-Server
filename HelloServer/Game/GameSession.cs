@@ -859,6 +859,54 @@ public sealed partial class GameSession
         }
     }
 
+    public bool TryUseUsableItem(string playerId, UsableItemUseRequest request,
+        out UsableItemUsedMessage usedMessage, out InventorySnapshotMessage inventoryMessage,
+        out PlayerHealthChangedMessage healthMessage, out string errorCode, out string errorMessage)
+    {
+        usedMessage = null; inventoryMessage = null; healthMessage = null;
+        errorCode = null; errorMessage = null;
+        lock (stateGate)
+        {
+            if (request?.IsValid() != true || ServerUsableItemCatalog.TryGet(request.ItemID, out ServerUsableItemCatalog.Definition definition) == false)
+                return Fail("item.invalid_usable", "사용할 수 없는 아이템입니다.", out errorCode, out errorMessage);
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (player.IsDead)
+                return Fail("player.dead", "사망 상태에서는 아이템을 사용할 수 없습니다.", out errorCode, out errorMessage);
+            if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false ||
+                inventory.Quantities.GetValueOrDefault(request.ItemID) <= 0)
+                return Fail("inventory.insufficient", "아이템 수량이 부족합니다.", out errorCode, out errorMessage);
+
+            int remaining = inventory.Quantities[request.ItemID] - 1;
+            if (remaining == 0) inventory.Quantities.Remove(request.ItemID);
+            else inventory.Quantities[request.ItemID] = remaining;
+
+            GridCoord[] detectedCells = Array.Empty<GridCoord>();
+            if (definition.DetectRadius > 0f)
+            {
+                float radiusSqr = definition.DetectRadius * definition.DetectRadius;
+                detectedCells = State.Terrain.Cells
+                    .Where(pair => pair.Value.ResourceID > 0)
+                    .Where(pair =>
+                    {
+                        float x = State.Terrain.OriginX + (pair.Key.X + 0.5f) * State.Terrain.CellSize;
+                        float y = State.Terrain.OriginY + (pair.Key.Y + 0.5f) * State.Terrain.CellSize;
+                        float dx = x - player.X, dy = y - player.Y;
+                        return dx * dx + dy * dy <= radiusSqr;
+                    })
+                    .Select(pair => pair.Key).ToArray();
+            }
+            if (definition.HealAmount > 0)
+            {
+                player.CurrentHealth = Math.Min(player.MaxHealth, player.CurrentHealth + definition.HealAmount);
+                healthMessage = new PlayerHealthChangedMessage { Player = CreatePlayerHealthState(player), DamageType = "Potion" };
+            }
+            usedMessage = new UsableItemUsedMessage { RequestId = request.RequestId, ItemID = request.ItemID, DetectedCells = detectedCells };
+            inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
+            return true;
+        }
+    }
+
     public bool TryThrowDynamite(
         string playerID,
         DynamiteThrowRequest request,
