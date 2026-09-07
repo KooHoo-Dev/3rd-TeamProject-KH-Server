@@ -18,6 +18,7 @@ public sealed class LobbyHub
         public bool IsStarted;
         public bool IsRematchLobby;
         public int StartedPlayerCount;
+        public long StateRevision;
         public DateTime LastTouchedUtc;
         public List<LobbyPlayerInfo> Players { get; } = new();  // 로비 화면과 동기화되는 순서, 호스트가 항상 0번
         public Dictionary<string, WebSocket> Members { get; } = new();
@@ -445,8 +446,14 @@ public sealed class LobbyHub
         {
             if (lobbies.TryGetValue(code, out Lobby lobby) == false) return;
             LobbyRoomInfo info = ToInfo(code, lobby);
+            long revision = ++lobby.StateRevision;
             foreach ((string id, WebSocket socket) in lobby.Members)
-                recipients.Add((socket, new LobbyStateMessage { Room = info, HostToken = id == lobby.HostClientId ? lobby.HostToken : null }));
+                recipients.Add((socket, new LobbyStateMessage
+                {
+                    Room = info,
+                    Revision = revision,
+                    HostToken = id == lobby.HostClientId ? lobby.HostToken : null,
+                }));
         }
         foreach ((WebSocket socket, LobbyStateMessage message) in recipients) await SendAsync(socket, message, token);
     }

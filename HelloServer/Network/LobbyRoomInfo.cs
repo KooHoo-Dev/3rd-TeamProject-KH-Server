@@ -79,6 +79,7 @@ public sealed class LobbyStateMessage
 {
     public string Type { get; set; } = "lobby.state";
     public LobbyRoomInfo Room { get; set; }
+    public long Revision { get; set; }
     public string HostToken { get; set; }
 }
 
