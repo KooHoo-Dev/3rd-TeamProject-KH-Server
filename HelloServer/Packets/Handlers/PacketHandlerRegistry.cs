@@ -22,6 +22,7 @@ public static class PacketHandlerRegistry
             new WorldItemDropPacketHandler(),
             new InventorySellPacketHandler(),
             new InventoryDebugGoldPacketHandler(),
+            new ShopPacketHandler(),
             new DynamiteThrowPacketHandler(),
             new DynamiteExplodePacketHandler(),
             new UsableItemPacketHandler(),

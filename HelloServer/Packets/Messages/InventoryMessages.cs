@@ -54,6 +54,24 @@ public sealed class InventoryDebugGoldRequest : PacketHeader
     }
 }
 
+public static class ShopActions
+{
+    public const string Begin = "begin";
+    public const string Purchase = "purchase";
+    public const string Undo = "undo";
+}
+
+public sealed class ShopRequest : PacketHeader
+{
+    public ShopRequest()
+    {
+        Type = PacketTypes.ShopRequest;
+    }
+
+    public string Action { get; set; }
+    public int ItemID { get; set; }
+}
+
 public sealed class WorldItemDropDto
 {
     public string DropID { get; set; }

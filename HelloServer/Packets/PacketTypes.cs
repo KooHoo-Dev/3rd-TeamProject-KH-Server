@@ -53,6 +53,7 @@ public static class PacketTypes
     public const string InventoryGoldRanking = "inventory.gold_ranking";
     public const string InventorySell = "inventory.sell";
     public const string InventoryDebugGold = "inventory.debug_gold";
+    public const string ShopRequest = "shop.request";
     public const string TerrainDeathLootRequest = "terrain_death_loot";
     public const string Error = "error";
 }

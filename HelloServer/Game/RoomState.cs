@@ -101,7 +101,10 @@ public sealed class PlayerInventoryRoomState
     // 플레이어별 장비/스탯 한도가 생기면 이 값을 접속 시점에 설정합니다.
     public int MaxWeight { get; init; } = 1000;
     public Dictionary<int, int> Quantities { get; } = new();
+    public Stack<ShopPurchaseRecord> ShopPurchaseHistory { get; } = new();
 }
+
+public readonly record struct ShopPurchaseRecord(int ItemID, int Quantity, int PaidGold);
 
 public sealed class WorldItemRoomState
 {

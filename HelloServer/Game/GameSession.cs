@@ -11,6 +11,8 @@ public sealed partial class GameSession
     private const long MinimumHealRequestIntervalMilliseconds = 100;
     private const long ManualDropPickupDelayMilliseconds = 2_000;
     private const float MaximumDynamiteStartDistance = 1.5f;
+    // player.move는 주기 전송이므로 감지 반경 경계에서 한 패킷만큼의 위치 차이를 허용한다.
+    private const float MineDetectionPositionTolerance = 1f;
 
     private const int DebugItemQuantity = 1_00;
     private const int DebugGoldGrantQuantity = 2_000;
@@ -700,6 +702,101 @@ public sealed partial class GameSession
         }
     }
 
+    public bool TryHandleShopRequest(
+        string playerId,
+        ShopRequest request,
+        out InventorySnapshotMessage inventoryMessage,
+        out GameEndedMessage endedMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        inventoryMessage = null;
+        endedMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(request?.RequestId) ||
+            request.Action is not (ShopActions.Begin or ShopActions.Purchase or ShopActions.Undo))
+            return Fail("shop.invalid_request", "유효하지 않은 상점 요청입니다.", out errorCode, out errorMessage);
+
+        lock (stateGate)
+        {
+            if (State.GameFlow.IsStarted == false || State.GameFlow.IsEnded)
+                return Fail("game.not_active", "진행 중인 게임에서만 상점을 이용할 수 있습니다.", out errorCode, out errorMessage);
+            if (State.Players.TryGetValue(playerId, out PlayerRoomState player) == false)
+                return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
+            if (player.IsDead)
+                return Fail("player.dead", "사망 상태에서는 상점을 이용할 수 없습니다.", out errorCode, out errorMessage);
+            if (IsInSpawnAreaUnsafe(player.X, player.Y) == false)
+                return Fail("shop.outside_spawn", "스폰 구역에서만 상점을 이용할 수 있습니다.", out errorCode, out errorMessage);
+            if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
+                return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
+
+            if (request.Action == ShopActions.Begin)
+            {
+                inventory.ShopPurchaseHistory.Clear();
+            }
+            else if (request.Action == ShopActions.Purchase)
+            {
+                if (itemCatalog.TryGetItem(request.ItemID, out ServerItemCatalog.ItemDefinition item) == false ||
+                    item.Price <= 0 || item.ItemType is "Exchange" or "Gold")
+                    return Fail("shop.not_for_sale", "판매하지 않는 아이템입니다.", out errorCode, out errorMessage);
+
+                int goldItemID = itemCatalog.GoldItemID;
+                int currentGold = inventory.Quantities.GetValueOrDefault(goldItemID);
+                if (currentGold < item.Price)
+                    return Fail("shop.insufficient_gold", "골드가 부족합니다.", out errorCode, out errorMessage);
+
+                if (item.ItemType == "Pickaxe")
+                {
+                    if (itemCatalog.TryGetPickaxe(request.ItemID, out ServerItemCatalog.PickaxeDefinition nextPickaxe) == false ||
+                        itemCatalog.TryGetPickaxe(player.EquippedPickaxeItemID, out ServerItemCatalog.PickaxeDefinition currentPickaxe) &&
+                        nextPickaxe.DigPower <= currentPickaxe.DigPower)
+                        return Fail("shop.pickaxe_not_upgrade", "현재 곡괭이보다 채굴력이 높은 곡괭이만 구매할 수 있습니다.", out errorCode, out errorMessage);
+                }
+
+                if (CanAddInventoryWeight(inventory, request.ItemID, 1) == false)
+                    return Fail("inventory.overweight", "인벤토리 무게 한도를 초과했습니다.", out errorCode, out errorMessage);
+
+                int currentQuantity = inventory.Quantities.GetValueOrDefault(request.ItemID);
+                if (currentQuantity == int.MaxValue)
+                    return Fail("inventory.overflow", "아이템 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
+
+                inventory.Quantities[goldItemID] = currentGold - item.Price;
+                if (item.ItemType == "Pickaxe")
+                    inventory.Quantities.Remove(player.EquippedPickaxeItemID);
+                inventory.Quantities[request.ItemID] = currentQuantity + 1;
+                inventory.ShopPurchaseHistory.Push(new ShopPurchaseRecord(request.ItemID, 1, item.Price));
+
+                if (item.ItemType == "Pickaxe")
+                    player.EquippedPickaxeItemID = request.ItemID;
+            }
+            else
+            {
+                if (inventory.ShopPurchaseHistory.TryPop(out ShopPurchaseRecord record) == false)
+                    return Fail("shop.nothing_to_undo", "되돌릴 구매 내역이 없습니다.", out errorCode, out errorMessage);
+                if (itemCatalog.TryGetItem(record.ItemID, out ServerItemCatalog.ItemDefinition item) == false ||
+                    item.ItemType == "Pickaxe" ||
+                    inventory.Quantities.GetValueOrDefault(record.ItemID) < record.Quantity)
+                    return Fail("shop.item_unavailable", "이미 사용되었거나 없어져 되돌릴 수 없습니다.", out errorCode, out errorMessage);
+
+                int goldItemID = itemCatalog.GoldItemID;
+                int currentGold = inventory.Quantities.GetValueOrDefault(goldItemID);
+                if (currentGold > int.MaxValue - record.PaidGold)
+                    return Fail("inventory.gold_overflow", "보유 골드가 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
+
+                int remaining = inventory.Quantities[record.ItemID] - record.Quantity;
+                if (remaining == 0) inventory.Quantities.Remove(record.ItemID);
+                else inventory.Quantities[record.ItemID] = remaining;
+                inventory.Quantities[goldItemID] = currentGold + record.PaidGold;
+                endedMessage = TryEndGameForGoldUnsafe(playerId, inventory);
+            }
+
+            inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
+            return true;
+        }
+    }
+
     private GameEndedMessage TryEndGameForGoldUnsafe(
         string playerId,
         PlayerInventoryRoomState inventory)
@@ -1118,8 +1215,10 @@ public sealed partial class GameSession
 
                 float mineDeltaX = mineTarget.X - pending.StartX;
                 float mineDeltaY = mineTarget.Y - pending.StartY;
+                float allowedMineDetectionDistance =
+                    pending.DetectionRadius + MineDetectionPositionTolerance;
                 if (mineDeltaX * mineDeltaX + mineDeltaY * mineDeltaY >
-                    pending.DetectionRadius * pending.DetectionRadius)
+                    allowedMineDetectionDistance * allowedMineDetectionDistance)
                     return Fail("mine.no_target", "지뢰 감지 범위 안에 플레이어가 없습니다.", out errorCode, out errorMessage);
 
                 State.Dynamites.Projectiles.Remove(request.ProjectileID);

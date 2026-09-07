@@ -22,6 +22,7 @@ public sealed class PacketDispatcher
 
         PacketTypes.InventorySell,
         PacketTypes.InventoryDebugGold,
+        PacketTypes.ShopRequest,
 
         PacketTypes.DynamiteThrow,
         PacketTypes.DynamiteExplodeRequest,
