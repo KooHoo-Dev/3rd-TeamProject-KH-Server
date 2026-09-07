@@ -25,6 +25,12 @@ public sealed class LobbyHub
 
     private readonly Dictionary<string, Lobby> lobbies = new();
     private readonly object gate = new();
+    private readonly RoomHub roomHub;
+
+    public LobbyHub(RoomHub roomHub)
+    {
+        this.roomHub = roomHub;
+    }
 
     public bool IsStarted(string rawCode)
     {
@@ -93,10 +99,12 @@ public sealed class LobbyHub
                         try { await kickedSocket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Kicked by host", token); }
                         catch (WebSocketException) { }
                     }
+                    // 고스트는 로비 연결이 없고 인게임 WebSocket만 살아 있으므로 별도로 종료해야 합니다.
+                    await roomHub.DisconnectClientAsync(code, kickRequest.TargetClientID);
                     await BroadcastStateAsync(code, token);
                     await BroadcastAsync(code, new LobbySystemMessage
                     {
-                        Text = $"{kickedNickName}님이 호스트에 의해 강퇴되었습니다."
+                        Text = $"{kickedNickName}님이 호스트에 의해 추방되었습니다."
                     }, token);
                     continue;
                 }
@@ -127,14 +135,15 @@ public sealed class LobbyHub
         {
             if (code != null && clientId != null)
             {
-                string nickName = GetNickName(code, clientId);
-                Detach(code, clientId, socket);
-                await BroadcastStateAsync(code, CancellationToken.None);
-                if (string.IsNullOrWhiteSpace(nickName) == false)
+                string nickName = Detach(code, clientId, socket);
+                if (nickName != null)
+                {
+                    await BroadcastStateAsync(code, CancellationToken.None);
                     await BroadcastAsync(code, new LobbySystemMessage
                     {
                         Text = $"{nickName}님이 대기실에서 나갔습니다."
                     }, CancellationToken.None);
+                }
             }
         }
     }
@@ -249,7 +258,6 @@ public sealed class LobbyHub
                 error = "room.not_found";
                 return false;
             }
-
             if (lobby.IsStarted == false && lobby.IsRematchLobby == false)
             {
                 error = "room.not_started";
@@ -321,29 +329,38 @@ public sealed class LobbyHub
         }
     }
 
-    private void Detach(string code, string clientId, WebSocket socket)
+    private string Detach(string code, string clientId, WebSocket socket)
     {
         lock (gate)
         {
-            if (lobbies.TryGetValue(code, out Lobby lobby) == false) return;
+            if (lobbies.TryGetValue(code, out Lobby lobby) == false) return null;
             bool detachedCurrent = lobby.Members.TryGetValue(clientId, out WebSocket current) && current == socket;
-            if (detachedCurrent) lobby.Members.Remove(clientId);
-            if (detachedCurrent && lobby.IsStarted == false && lobby.IsRematchLobby == false)
+            if (detachedCurrent == false) return null;
+
+            string nickName = lobby.Players.Find(player => player.ClientID == clientId)?.NickName;
+            lobby.Members.Remove(clientId);
+            if (lobby.IsStarted == false)
             {
                 bool hostLeft = lobby.HostClientId == clientId;
-                lobby.Players.RemoveAll(player => player.ClientID == clientId);
-                if (lobby.Players.Count == 0)
+                // 재대기방에서는 일반 퇴장자를 고스트로 남긴다. 단, 호스트가 나가면
+                // 첫 슬롯을 비워 둘 수 없으므로 목록에서 제거하고 다음 슬롯에 위임한다.
+                if (lobby.IsRematchLobby == false || hostLeft)
                 {
-                    lobbies.Remove(code);
-                }
-                else if (hostLeft)
-                {
-                    // 플레이어 목록은 입장 순서이므로, 다음 슬롯의 플레이어에게 호스트를 넘긴다.
-                    lobby.HostClientId = lobby.Players[0].ClientID;
-                    lobby.HostToken = Guid.NewGuid().ToString("N");
+                    lobby.Players.RemoveAll(player => player.ClientID == clientId);
+                    if (lobby.Players.Count == 0)
+                    {
+                        lobbies.Remove(code);
+                    }
+                    else if (hostLeft)
+                    {
+                        // 플레이어 목록은 입장 순서이므로, 다음 슬롯의 플레이어에게 호스트를 넘긴다.
+                        lobby.HostClientId = lobby.Players[0].ClientID;
+                        lobby.HostToken = Guid.NewGuid().ToString("N");
+                    }
                 }
             }
             lobby.LastTouchedUtc = DateTime.UtcNow;
+            return nickName;
         }
     }
 

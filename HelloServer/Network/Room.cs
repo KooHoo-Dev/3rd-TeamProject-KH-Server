@@ -46,6 +46,26 @@ public sealed class Room
 
     public bool IsGameStarted => gameSession.State.GameFlow.IsStarted;
 
+    /// <summary>로비 강퇴처럼 외부 권한 처리로 특정 클라이언트의 게임 연결을 종료한다.</summary>
+    public async Task<bool> DisconnectClientAsync(string clientId)
+    {
+        Member member = members.Values.FirstOrDefault(value => value.User.ClientID == clientId);
+        if (member?.Socket == null) return false;
+
+        try
+        {
+            if (member.Socket.State == WebSocketState.Open)
+            {
+                await SendAsync(member, new PlayerKickedMessage());
+                await member.Socket.CloseAsync(WebSocketCloseStatus.PolicyViolation,
+                    "Kicked by host", CancellationToken.None);
+            }
+        }
+        catch (WebSocketException) { }
+
+        return true;
+    }
+
     public Room(string code, int logMovesPerSecond, int expectedPlayerCount)
     {
         this.code = code;

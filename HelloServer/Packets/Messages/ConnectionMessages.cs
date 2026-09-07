@@ -14,6 +14,16 @@ public class HelloMessage : PacketHeader
     public bool DebugMode { get; set; }
 }
 
+public sealed class PlayerKickedMessage : PacketHeader
+{
+    public PlayerKickedMessage()
+    {
+        Type = PacketTypes.PlayerKicked;
+    }
+
+    public string Reason { get; set; } = "host_kicked";
+}
+
 public class WelcomeMessage : PacketHeader
 {
     public WelcomeMessage()

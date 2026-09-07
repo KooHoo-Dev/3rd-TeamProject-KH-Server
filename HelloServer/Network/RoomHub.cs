@@ -332,6 +332,18 @@ public class RoomHub
         }
     }
 
+    /// <summary>지정한 방에서 ClientID와 일치하는 인게임 WebSocket을 종료한다.</summary>
+    public Task<bool> DisconnectClientAsync(string code, string clientId)
+    {
+        Room room;
+        lock (gate)
+        {
+            if (rooms.TryGetValue(code, out Entry entry) == false) return Task.FromResult(false);
+            room = entry.Room;
+        }
+        return room.DisconnectClientAsync(clientId);
+    }
+
     // 보든 방에 시간(일정 주기)별로 틱을 관리하는 함수 입니다.
     // 틱을 관리하면서 Task.WhenAll을 통해서 방의 메시지들을 방송합니다.
     // (RoomHub -> Room의 함수를 호출)

@@ -19,6 +19,7 @@ public static class PacketTypes
     public const string PlayerHealthChanged = "player.health_changed";
     public const string PlayerDied = "player.died";
     public const string PlayerRespawned = "player.respawned";
+    public const string PlayerKicked = "player.kicked";
     public const string PlayerDamage = "player.damage";
     public const string PlayerHeal = "player.heal";
     public const string PlayerRespawnRequest = "player.respawn_request";

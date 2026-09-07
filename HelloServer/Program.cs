@@ -45,7 +45,7 @@ public class Program
         
         // 서버에 방을 추가해 줍시다.
         RoomHub hub = new RoomHub(perSecond, logMoves);
-        LobbyHub lobbyHub = new LobbyHub();
+        LobbyHub lobbyHub = new LobbyHub(hub);
         app.Lifetime.ApplicationStopping.Register(hub.StopAll);
         
         app.UseWebSockets();
