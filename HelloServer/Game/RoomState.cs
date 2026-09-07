@@ -131,4 +131,8 @@ public sealed class PendingDynamiteState
     public float FuseTime { get; init; }
     public float ExplosionRadius { get; init; }
     public int ExplosionPower { get; init; }
+    public bool IsMine { get; init; }
+    public GridCoord Cell { get; init; }
+    public float ArmDelay { get; init; }
+    public float DetectionRadius { get; init; }
 }

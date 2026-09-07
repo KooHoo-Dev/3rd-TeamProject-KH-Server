@@ -874,6 +874,9 @@ public sealed partial class GameSession
                 inventory.Quantities.GetValueOrDefault(request.ItemID) <= 0)
                 return Fail("inventory.insufficient", "아이템 수량이 부족합니다.", out errorCode, out errorMessage);
 
+            if (definition.HealAmount > 0 && player.CurrentHealth >= player.MaxHealth)
+                return Fail("player.health_full", "체력이 이미 가득 찼습니다.", out errorCode, out errorMessage);
+
             int remaining = inventory.Quantities[request.ItemID] - 1;
             if (remaining == 0) inventory.Quantities.Remove(request.ItemID);
             else inventory.Quantities[request.ItemID] = remaining;
@@ -944,6 +947,16 @@ public sealed partial class GameSession
                     "사망 상태에서는 다이너마이트를 사용할 수 없습니다.",
                     out errorCode,
                     out errorMessage);
+            }
+
+            if (ServerDynamiteCatalog.TryGetMine(
+                    request.ItemID,
+                    out ServerDynamiteCatalog.MineDefinition mine))
+            {
+                return TryPlaceMineUnsafe(
+                    playerID, player, request, mine,
+                    out thrownMessage, out inventoryMessage,
+                    out errorCode, out errorMessage);
             }
 
             if (ServerDynamiteCatalog.TryGet(
@@ -1092,6 +1105,28 @@ public sealed partial class GameSession
                     out errorMessage);
             }
 
+            if (pending.IsMine)
+            {
+                if (State.Players.TryGetValue(playerID, out PlayerRoomState mineTarget) == false ||
+                    mineTarget.IsDead)
+                    return Fail("player.dead", "사망 상태에서는 지뢰를 작동시킬 수 없습니다.", out errorCode, out errorMessage);
+
+                long armElapsed = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() -
+                                  pending.StartedAtUnixMilliseconds;
+                if (armElapsed < (long)(pending.ArmDelay * 1000f) - 150)
+                    return Fail("mine.arming", "지뢰가 아직 무장 중입니다.", out errorCode, out errorMessage);
+
+                float mineDeltaX = mineTarget.X - pending.StartX;
+                float mineDeltaY = mineTarget.Y - pending.StartY;
+                if (mineDeltaX * mineDeltaX + mineDeltaY * mineDeltaY >
+                    pending.DetectionRadius * pending.DetectionRadius)
+                    return Fail("mine.no_target", "지뢰 감지 범위 안에 플레이어가 없습니다.", out errorCode, out errorMessage);
+
+                State.Dynamites.Projectiles.Remove(request.ProjectileID);
+                projectile = pending;
+                return true;
+            }
+
             if (pending.OwnerPlayerID != playerID)
             {
                 return Fail(
@@ -1140,6 +1175,89 @@ public sealed partial class GameSession
             projectile = pending;
             return true;
         }
+    }
+
+    private bool TryPlaceMineUnsafe(
+        string playerID,
+        PlayerRoomState player,
+        DynamiteThrowRequest request,
+        ServerDynamiteCatalog.MineDefinition mine,
+        out DynamiteThrownMessage thrownMessage,
+        out InventorySnapshotMessage inventoryMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        thrownMessage = null;
+        inventoryMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        if (State.Inventory.Players.TryGetValue(playerID, out PlayerInventoryRoomState inventory) == false)
+                return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
+
+            if (inventory.Quantities.GetValueOrDefault(request.ItemID) <= 0)
+                return Fail("inventory.insufficient", "지뢰 수량이 부족합니다.", out errorCode, out errorMessage);
+
+            float requestDeltaX = request.StartX - player.X;
+            float requestDeltaY = request.StartY - player.Y;
+            if (requestDeltaX * requestDeltaX + requestDeltaY * requestDeltaY >
+                MaximumDynamiteStartDistance * MaximumDynamiteStartDistance)
+                return Fail("mine.invalid_position", "지뢰 설치 위치가 플레이어와 너무 멉니다.", out errorCode, out errorMessage);
+
+            int cellX = (int)Math.Floor((player.X - State.Terrain.OriginX) / State.Terrain.CellSize);
+            int cellY = (int)Math.Floor((player.Y - State.Terrain.OriginY) / State.Terrain.CellSize);
+            if (cellX < 0 || cellX >= State.Terrain.MapWidth ||
+                cellY < 0 || cellY >= State.Terrain.MapHeight)
+                return Fail("mine.out_of_map", "맵 밖에는 지뢰를 설치할 수 없습니다.", out errorCode, out errorMessage);
+
+            GridCoord cell = new(cellX, cellY);
+            if (State.Dynamites.Projectiles.Values.Any(existing =>
+                    existing.IsMine && existing.Cell.Equals(cell)))
+                return Fail("mine.cell_occupied", "이미 지뢰가 설치된 타일입니다.", out errorCode, out errorMessage);
+
+            int remainingQuantity = inventory.Quantities[request.ItemID] - 1;
+            if (remainingQuantity == 0) inventory.Quantities.Remove(request.ItemID);
+            else inventory.Quantities[request.ItemID] = remainingQuantity;
+
+            string mineID = $"mine-{Interlocked.Increment(ref lastDynamiteProjectileID)}";
+            long placedAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            float x = State.Terrain.OriginX + (cellX + 0.5f) * State.Terrain.CellSize;
+            float y = State.Terrain.OriginY + (cellY + 0.5f) * State.Terrain.CellSize;
+            PendingDynamiteState pending = new()
+            {
+                ProjectileID = mineID,
+                OwnerPlayerID = playerID,
+                ItemID = request.ItemID,
+                StartX = x,
+                StartY = y,
+                StartedAtUnixMilliseconds = placedAtUnixMilliseconds,
+                ArmDelay = mine.ArmDelay,
+                DetectionRadius = mine.DetectionRadius,
+                ExplosionRadius = mine.ExplosionRadius,
+                ExplosionPower = mine.ExplosionPower,
+                IsMine = true,
+                Cell = cell,
+            };
+            State.Dynamites.Projectiles.Add(mineID, pending);
+
+            thrownMessage = new DynamiteThrownMessage
+            {
+                RequestId = request.RequestId,
+                ProjectileID = mineID,
+                OwnerPlayerID = playerID,
+                ItemID = request.ItemID,
+                StartX = x,
+                StartY = y,
+                CellX = cellX,
+                CellY = cellY,
+                StartedAtUnixMilliseconds = placedAtUnixMilliseconds,
+                ArmDelay = mine.ArmDelay,
+                DetectionRadius = mine.DetectionRadius,
+                ExplosionRadius = mine.ExplosionRadius,
+                IsMine = true,
+            };
+            inventoryMessage = CreateInventorySnapshotUnsafe(playerID, request.RequestId);
+            return true;
     }
 
     private void SetGeneratedTerrain(ServerGeneratedTerrain generated)

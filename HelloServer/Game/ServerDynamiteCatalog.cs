@@ -13,6 +13,13 @@ public static class ServerDynamiteCatalog
         float ExplosionRadius,
         int ExplosionPower);
 
+    public sealed record MineDefinition(
+        int ItemID,
+        float ArmDelay,
+        float DetectionRadius,
+        float ExplosionRadius,
+        int ExplosionPower);
+
     private static readonly Dictionary<int, DynamiteDefinition> definitions = new()
     {
         [50] = new DynamiteDefinition(
@@ -23,8 +30,23 @@ public static class ServerDynamiteCatalog
             ExplosionPower: 3),
     };
 
+    private static readonly Dictionary<int, MineDefinition> mineDefinitions = new()
+    {
+        [53] = new MineDefinition(
+            ItemID: 53,
+            ArmDelay: 1.5f,
+            DetectionRadius: 1.5f,
+            ExplosionRadius: 2.5f,
+            ExplosionPower: 3),
+    };
+
     public static bool TryGet(int itemID, out DynamiteDefinition definition)
     {
         return definitions.TryGetValue(itemID, out definition);
+    }
+
+    public static bool TryGetMine(int itemID, out MineDefinition definition)
+    {
+        return mineDefinitions.TryGetValue(itemID, out definition);
     }
 }

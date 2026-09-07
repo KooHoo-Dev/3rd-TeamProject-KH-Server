@@ -40,18 +40,21 @@ public sealed class DynamiteExplodePacketHandler : IPacketHandler
                 return;
             }
 
+            float explosionX = projectile.IsMine ? projectile.StartX : request.X;
+            float explosionY = projectile.IsMine ? projectile.StartY : request.Y;
+
             context.GameSession.TryExplodeDynamiteTerrain(
                 projectile,
-                request.X,
-                request.Y,
+                explosionX,
+                explosionY,
                 request.RequestId,
                 out TerrainChangeBatchMessage terrainMessage,
                 out WorldItemSpawnedMessage[] spawnedMessages);
 
             context.GameSession.ApplyDynamiteExplosionDamage(
                 projectile,
-                request.X,
-                request.Y,
+                explosionX,
+                explosionY,
                 request.RequestId,
                 out PlayerHealthChangedMessage[] healthChangedMessages,
                 out PlayerDiedMessage[] diedMessages);
@@ -73,9 +76,10 @@ public sealed class DynamiteExplodePacketHandler : IPacketHandler
                 RequestId = request.RequestId,
                 ProjectileID = projectile.ProjectileID,
                 OwnerPlayerID = projectile.OwnerPlayerID,
-                X = request.X,
-                Y = request.Y,
+                X = explosionX,
+                Y = explosionY,
                 ExplosionRadius = projectile.ExplosionRadius,
+                IsMine = projectile.IsMine,
             });
         });
 
