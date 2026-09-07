@@ -38,6 +38,7 @@ public sealed class WorldItemPickupPacketHandler : IPacketHandler
 
         await context.BroadcastAsync(removedMessage);
         await context.SendAsync(inventoryMessage);
+        await context.BroadcastAsync(context.GameSession.CreateGoldRankingMessage());
         if (endedMessage != null)
             await context.BroadcastAsync(endedMessage);
     }

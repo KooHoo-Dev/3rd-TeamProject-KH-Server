@@ -36,6 +36,10 @@ public sealed class TerrainDeathLootPacketHandler : IPacketHandler
         });
 
         if (error != null) await context.SendAsync(error);
-        else if (inventoryMessage != null) await context.SendAsync(inventoryMessage);
+        else if (inventoryMessage != null)
+        {
+            await context.SendAsync(inventoryMessage);
+            await context.BroadcastAsync(context.GameSession.CreateGoldRankingMessage());
+        }
     }
 }

@@ -19,6 +19,25 @@ public sealed class InventorySnapshotMessage : PacketHeader
     public int MaxWeight { get; set; }
 }
 
+public sealed class GoldRankingPlayerDto
+{
+    public string PlayerID { get; set; }
+    public string NickName { get; set; }
+    public long Gold { get; set; }
+    public long ExchangeValue { get; set; }
+}
+
+public sealed class GoldRankingMessage : PacketHeader
+{
+    public GoldRankingMessage()
+    {
+        Type = PacketTypes.InventoryGoldRanking;
+    }
+
+    public GoldRankingPlayerDto[] Players { get; set; } =
+        Array.Empty<GoldRankingPlayerDto>();
+}
+
 public sealed class InventorySellRequest : PacketHeader
 {
     public InventorySellRequest()

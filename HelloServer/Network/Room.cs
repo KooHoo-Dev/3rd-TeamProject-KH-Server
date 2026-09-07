@@ -424,6 +424,7 @@ public sealed class Room
             }
 
             EnqueueBroadcast(new JoinMessage { User = member.User }, id);
+            EnqueueBroadcast(gameSession.CreateGoldRankingMessage());
         }
         finally
         {
@@ -461,6 +462,7 @@ public sealed class Room
             {
                 User = member.User,
             }, member.User.Id);
+            EnqueueBroadcast(gameSession.CreateGoldRankingMessage());
         }
         finally
         {

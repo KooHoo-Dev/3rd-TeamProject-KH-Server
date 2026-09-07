@@ -561,6 +561,22 @@ public sealed partial class GameSession
         }
     }
 
+    public GoldRankingMessage CreateGoldRankingMessage()
+    {
+        lock (stateGate)
+        {
+            return new GoldRankingMessage
+            {
+                Players = State.Players.Values
+                    .Select(player => CreateGoldRankingPlayerUnsafe(player))
+                    .OrderByDescending(player => player.Gold)
+                    .ThenBy(player => player.NickName, StringComparer.Ordinal)
+                    .ThenBy(player => player.PlayerID, StringComparer.Ordinal)
+                    .ToArray(),
+            };
+        }
+    }
+
     public bool TryPickup(
         string playerId,
         WorldItemPickupRequest request,
@@ -1129,6 +1145,37 @@ public sealed partial class GameSession
             Items = items,
             CurrentWeight = GetInventoryWeight(inventory),
             MaxWeight = inventory?.MaxWeight ?? 0,
+        };
+    }
+
+    private GoldRankingPlayerDto CreateGoldRankingPlayerUnsafe(PlayerRoomState player)
+    {
+        State.Inventory.Players.TryGetValue(player.Id, out PlayerInventoryRoomState inventory);
+        long gold = 0;
+        long exchangeValue = 0;
+
+        if (inventory != null)
+        {
+            inventory.Quantities.TryGetValue(itemCatalog.GoldItemID, out int goldQuantity);
+            gold = Math.Max(0, goldQuantity);
+
+            foreach ((int itemID, int quantity) in inventory.Quantities)
+            {
+                if (quantity <= 0 ||
+                    itemCatalog.TryGetItem(itemID, out ServerItemCatalog.ItemDefinition item) == false ||
+                    string.Equals(item.ItemType, "Exchange", StringComparison.Ordinal) == false)
+                    continue;
+
+                exchangeValue += (long)quantity * item.Price;
+            }
+        }
+
+        return new GoldRankingPlayerDto
+        {
+            PlayerID = player.Id,
+            NickName = player.NickName,
+            Gold = gold,
+            ExchangeValue = exchangeValue,
         };
     }
 

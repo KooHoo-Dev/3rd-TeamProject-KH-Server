@@ -29,6 +29,7 @@ public sealed class InventorySellPacketHandler : IPacketHandler
         }
 
         await context.SendAsync(inventoryMessage);
+        await context.BroadcastAsync(context.GameSession.CreateGoldRankingMessage());
         if (endedMessage != null)
             await context.BroadcastAsync(endedMessage);
     }

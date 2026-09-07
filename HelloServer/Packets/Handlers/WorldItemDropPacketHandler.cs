@@ -28,5 +28,6 @@ public sealed class WorldItemDropPacketHandler : IPacketHandler
 
         await context.BroadcastAsync(spawnedMessage);
         await context.SendAsync(inventoryMessage);
+        await context.BroadcastAsync(context.GameSession.CreateGoldRankingMessage());
     }
 }
