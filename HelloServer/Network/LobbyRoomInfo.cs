@@ -78,3 +78,23 @@ public sealed class LobbyErrorMessage
     public string Type { get; set; } = "lobby.error";
     public string Code { get; set; }
 }
+
+public sealed class LobbyChatSendMessage
+{
+    public string Type { get; set; } = "lobby.chat.send";
+    public string Text { get; set; }
+}
+
+public sealed class LobbyChatMessage
+{
+    public string Type { get; set; } = "lobby.chat";
+    public string ClientID { get; set; }
+    public string NickName { get; set; }
+    public string Text { get; set; }
+}
+
+public sealed class LobbySystemMessage
+{
+    public string Type { get; set; } = "lobby.system";
+    public string Text { get; set; }
+}

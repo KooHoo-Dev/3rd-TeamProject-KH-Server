@@ -58,11 +58,24 @@ public sealed class LobbyHub
             (code, clientId) = await AcceptFirstMessageAsync(socket, token);
             if (code == null) return;
             await BroadcastStateAsync(code, token);
+            await BroadcastAsync(code, new LobbySystemMessage
+            {
+                Text = $"{GetNickName(code, clientId)}님이 대기실에 들어왔습니다."
+            }, token);
 
             while (socket.State == WebSocketState.Open && token.IsCancellationRequested == false)
             {
                 string json = await ReceiveTextAsync(socket, token);
                 LobbyMessageHeader header = JsonSerializer.Deserialize<LobbyMessageHeader>(json);
+                if (header?.Type == "lobby.chat.send")
+                {
+                    LobbyChatSendMessage chatRequest = JsonSerializer.Deserialize<LobbyChatSendMessage>(json);
+                    if (TryCreateChatMessage(code, clientId, chatRequest?.Text, out LobbyChatMessage chat, out string chatError) == false)
+                        await SendAsync(socket, new LobbyErrorMessage { Code = chatError }, token);
+                    else
+                        await BroadcastAsync(code, chat, token);
+                    continue;
+                }
                 if (header?.Type != "lobby.start")
                 {
                     await SendAsync(socket, new LobbyErrorMessage { Code = "lobby.unsupported_message" }, token);
@@ -89,8 +102,14 @@ public sealed class LobbyHub
         {
             if (code != null && clientId != null)
             {
+                string nickName = GetNickName(code, clientId);
                 Detach(code, clientId, socket);
                 await BroadcastStateAsync(code, CancellationToken.None);
+                if (string.IsNullOrWhiteSpace(nickName) == false)
+                    await BroadcastAsync(code, new LobbySystemMessage
+                    {
+                        Text = $"{nickName}님이 대기실에서 나갔습니다."
+                    }, CancellationToken.None);
             }
         }
     }
@@ -302,6 +321,46 @@ public sealed class LobbyHub
         }
     }
 
+    private bool TryCreateChatMessage(string code, string clientId, string text, out LobbyChatMessage message, out string error)
+    {
+        message = null;
+        error = null;
+        string normalized = text?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > 200)
+        {
+            error = "lobby.invalid_chat";
+            return false;
+        }
+        lock (gate)
+        {
+            if (lobbies.TryGetValue(code, out Lobby lobby) == false || lobby.IsStarted ||
+                lobby.Members.ContainsKey(clientId) == false)
+            {
+                error = "lobby.not_available";
+                return false;
+            }
+            LobbyPlayerInfo player = lobby.Players.Find(value => value.ClientID == clientId);
+            if (player == null)
+            {
+                error = "lobby.player_not_found";
+                return false;
+            }
+            lobby.LastTouchedUtc = DateTime.UtcNow;
+            message = new LobbyChatMessage { ClientID = clientId, NickName = player.NickName, Text = normalized };
+            return true;
+        }
+    }
+
+    private string GetNickName(string code, string clientId)
+    {
+        lock (gate)
+        {
+            return lobbies.TryGetValue(code, out Lobby lobby)
+                ? lobby.Players.Find(player => player.ClientID == clientId)?.NickName
+                : null;
+        }
+    }
+
     private async Task BroadcastStateAsync(string code, CancellationToken token)
     {
         List<(WebSocket Socket, LobbyStateMessage Message)> recipients = new();
@@ -325,6 +384,17 @@ public sealed class LobbyHub
         }
         LobbyStartedMessage message = new() { RoomCode = code };
         foreach (WebSocket socket in recipients) await SendAsync(socket, message, token);
+    }
+
+    private async Task BroadcastAsync(string code, object message, CancellationToken token)
+    {
+        List<WebSocket> recipients;
+        lock (gate)
+        {
+            if (lobbies.TryGetValue(code, out Lobby lobby) == false) return;
+            recipients = lobby.Members.Values.ToList();
+        }
+        foreach (WebSocket recipient in recipients) await SendAsync(recipient, message, token);
     }
 
     private static LobbyRoomInfo ToInfo(string code, Lobby lobby) => new()
