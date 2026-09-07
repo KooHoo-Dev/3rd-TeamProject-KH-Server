@@ -1,3 +1,8 @@
 ResourceID	Name	MaxDurability	PrefabKey	DropItemID	DropCount
-1	석탄	2	CoalResource	101	1
-2	철광석	3	IronResource	102	1
+1	석탄	4	Ore/CoalResource	101	1
+2	철광석	8	Ore/IronResource	102	1
+3	은	16	Ore/SilverResource	103	1
+4	금	32	Ore/GoldResource	104	1
+101	사파이어	16	Rough/SapphireResource	150	1
+102	루비	32	Rough/RubyResource	151	1
+103	다이아몬드	64	Rough/DiamondResource	152	1

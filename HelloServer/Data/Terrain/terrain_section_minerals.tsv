@@ -1,6 +1,8 @@
 ProfileID	SectionID	ResourceOrder	ResourceID	ClusterDensity	MinClusterSize	MaxClusterSize
-Default	Rock	0	1	0.02	3	8
-Default	Deep	0	2	0.01	2	6
+Default	Surface	0	1	0.03	5	10
+Default	Soil	0	2	0.025	3	8
+Default	Rock	0	3	0.025	3	8
+Default	Deep	0	4	0.025	2	6
 CollapseTest	TestSurface	0	1	0.08	3	8
 CollapseTest	TestSurface	1	2	0.04	2	6
 CollapseTest	TestRock	0	1	0.03	3	8
