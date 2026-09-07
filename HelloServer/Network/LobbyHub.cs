@@ -97,7 +97,8 @@ public sealed class LobbyHub
                     if (kickedSocket != null)
                     {
                         await SendAsync(kickedSocket, new LobbyKickedMessage(), token);
-                        try { await kickedSocket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Kicked by host", token); }
+                        // 강퇴 대상의 close handshake가 지연돼도 나머지 로비 상태 갱신을 막지 않는다.
+                        try { await kickedSocket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "Kicked by host", token); }
                         catch (WebSocketException) { }
                     }
                     // 고스트는 로비 연결이 없고 인게임 WebSocket만 살아 있으므로 별도로 종료해야 합니다.

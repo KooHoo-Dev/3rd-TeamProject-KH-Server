@@ -57,7 +57,8 @@ public sealed class Room
             if (member.Socket.State == WebSocketState.Open)
             {
                 await SendAsync(member, new PlayerKickedMessage());
-                await member.Socket.CloseAsync(WebSocketCloseStatus.PolicyViolation,
+                // 강퇴 통지 뒤 전체 close handshake를 기다리면 로비 상태 방송이 지연될 수 있다.
+                await member.Socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation,
                     "Kicked by host", CancellationToken.None);
             }
         }
