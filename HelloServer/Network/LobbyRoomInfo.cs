@@ -15,6 +15,8 @@ public sealed class LobbyPlayerInfo
 {
     public string ClientID { get; init; }
     public string NickName { get; init; }
+    /// <summary>대기방 WebSocket이 연결된 상태인지 여부입니다. 재대기방에서는 false인 플레이어를 고스트 슬롯으로 표시합니다.</summary>
+    public bool IsConnected { get; init; }
 }
 
 public class LobbyCreateRequest
@@ -39,6 +41,19 @@ public sealed class LobbyStartRequest
 {
     public string Type { get; set; } = "lobby.start";
     public string HostToken { get; set; }
+}
+
+public sealed class LobbyKickRequest
+{
+    public string Type { get; set; } = "lobby.kick";
+    public string HostToken { get; set; }
+    public string TargetClientID { get; set; }
+}
+
+public sealed class LobbyKickedMessage
+{
+    public string Type { get; set; } = "lobby.kicked";
+    public string Reason { get; set; } = "host_kicked";
 }
 
 public sealed class LobbyMessageHeader { public string Type { get; set; } }

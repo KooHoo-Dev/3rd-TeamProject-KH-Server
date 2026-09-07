@@ -176,6 +176,7 @@ public sealed partial class GameSession
                 inventory.Quantities[50] = DebugItemQuantity;
                 inventory.Quantities[51] = DebugItemQuantity;
                 inventory.Quantities[52] = DebugItemQuantity;
+                inventory.Quantities[53] = DebugItemQuantity;
             }
 
             State.Inventory.Players.TryAdd(user.Id, inventory);

@@ -6,7 +6,13 @@ ID	Name	Description	Price	ItemType	PrefabKey	SpriteKey	PickaxeRange	DigPower	Wei
 50	Dynamite	강력한 폭발물. 절대 사람을 향해 던지지 말자.	12	Usable	Items/Usable/Dynamite	Items/Usable/Dynamite_Thumbnail	0	0	1
 51	Potion	체력을 회복시켜주는 포션.	12	Usable	Items/Usable/Potion	Items/Usable/Potion_Thumbnail	0	0	1
 52	Detector	범위 안의 광맥을 찾아주는 탐지기.	12	Usable	Items/Usable/Detector	Items/Usable/Detector_Thumbnail	0	0	1
+53	Mine	벽과 땅에 매설할 수 있는 폭발물.	12	Usable	Items/Usable/Mine	Items/Usable/Mine_Thumbnail	0	0	1
 99	DebugPickAxe	개발자용 곡괭이.	0	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/Pickaxe_Thumbnail	100	100	0
 100	Gold	골드	0	Gold	Gold	Gold_Thumbnail	0	0	0
-101	Coal	석탄	5	Exchange	CoalItem	Coal_Thumbnail	0	0	1
-102	IronOre	철광석	10	Exchange	IronOreItem	IronOre_Thumbnail	0	0	2
+101	Coal	석탄	5	Exchange	Ore/CoalItem	Ore/Coal_Thumbnail	0	0	1
+102	IronOre	철광석	10	Exchange	Ore/IronOreItem	Ore/IronOre_Thumbnail	0	0	2
+103	SilverOre	은광석	20	Exchange	Ore/SilverOreItem	Ore/SilverOre_Thumbnail	0	0	2
+104	GoldOre	금광석	30	Exchange	Ore/GoldOreItem	Ore/GoldOre_Thumbnail	0	0	2
+150	SapphireRough	사파이어 원석	40	Exchange	Rough/SapphireRoughItem	Rough/SapphireRough_Thumbnail	0	0	2
+151	RubyRough	루비 원석	80	Exchange	Rough/RubyRoughItem	Rough/RubyRough_Thumbnail	0	0	2
+152	DiamondRough	다이아몬드 원석	200	Exchange	Rough/DiamondRoughItem	Rough/DiamondRough_Thumbnail	0	0	2

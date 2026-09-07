@@ -76,6 +76,31 @@ public sealed class LobbyHub
                         await BroadcastAsync(code, chat, token);
                     continue;
                 }
+
+                if (header?.Type == "lobby.kick")
+                {
+                    LobbyKickRequest kickRequest = JsonSerializer.Deserialize<LobbyKickRequest>(json);
+                    if (TryKick(code, clientId, kickRequest, out WebSocket kickedSocket,
+                            out string kickedNickName, out string kickError) == false)
+                    {
+                        await SendAsync(socket, new LobbyErrorMessage { Code = kickError }, token);
+                        continue;
+                    }
+
+                    if (kickedSocket != null)
+                    {
+                        await SendAsync(kickedSocket, new LobbyKickedMessage(), token);
+                        try { await kickedSocket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Kicked by host", token); }
+                        catch (WebSocketException) { }
+                    }
+                    await BroadcastStateAsync(code, token);
+                    await BroadcastAsync(code, new LobbySystemMessage
+                    {
+                        Text = $"{kickedNickName}님이 호스트에 의해 강퇴되었습니다."
+                    }, token);
+                    continue;
+                }
+
                 if (header?.Type != "lobby.start")
                 {
                     await SendAsync(socket, new LobbyErrorMessage { Code = "lobby.unsupported_message" }, token);
@@ -237,9 +262,6 @@ public sealed class LobbyHub
                 lobby.IsRematchLobby = true;
                 lobby.StartedPlayerCount = 0;
                 lobby.Members.Clear();
-                lobby.Players.Clear();
-                lobby.HostClientId = clientId;
-                lobby.HostToken = Guid.NewGuid().ToString("N");
             }
 
             string returningClientId = clientId;
@@ -285,7 +307,11 @@ public sealed class LobbyHub
             if (lobby.HostToken != hostToken) { error = "room.host_only"; return false; }
             int connectedPlayers = lobby.Members.Count;
             if (connectedPlayers < MinimumPlayers) { error = "room.not_enough_players"; return false; }
-            lobby.Players.RemoveAll(player => lobby.Members.ContainsKey(player.ClientID) == false);
+            if (lobby.Players.Any(player => lobby.Members.ContainsKey(player.ClientID) == false))
+            {
+                error = "room.players_not_returned";
+                return false;
+            }
             lobby.IsStarted = true;
             lobby.IsRematchLobby = false;
             lobby.StartedPlayerCount = connectedPlayers;
@@ -302,7 +328,7 @@ public sealed class LobbyHub
             if (lobbies.TryGetValue(code, out Lobby lobby) == false) return;
             bool detachedCurrent = lobby.Members.TryGetValue(clientId, out WebSocket current) && current == socket;
             if (detachedCurrent) lobby.Members.Remove(clientId);
-            if (detachedCurrent && lobby.IsStarted == false)
+            if (detachedCurrent && lobby.IsStarted == false && lobby.IsRematchLobby == false)
             {
                 bool hostLeft = lobby.HostClientId == clientId;
                 lobby.Players.RemoveAll(player => player.ClientID == clientId);
@@ -318,6 +344,40 @@ public sealed class LobbyHub
                 }
             }
             lobby.LastTouchedUtc = DateTime.UtcNow;
+        }
+    }
+
+    private bool TryKick(string code, string requesterClientId, LobbyKickRequest request,
+        out WebSocket kickedSocket, out string kickedNickName, out string error)
+    {
+        kickedSocket = null;
+        kickedNickName = null;
+        error = null;
+
+        lock (gate)
+        {
+            if (lobbies.TryGetValue(code, out Lobby lobby) == false) { error = "room.not_found"; return false; }
+            if (lobby.IsStarted) { error = "room.already_started"; return false; }
+            if (lobby.HostClientId != requesterClientId || lobby.HostToken != request?.HostToken)
+            {
+                error = "room.host_only";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(request.TargetClientID) || request.TargetClientID == requesterClientId)
+            {
+                error = "room.cannot_kick_host";
+                return false;
+            }
+
+            LobbyPlayerInfo target = lobby.Players.Find(player => player.ClientID == request.TargetClientID);
+            if (target == null) { error = "room.player_not_found"; return false; }
+
+            kickedNickName = target.NickName;
+            lobby.Players.Remove(target);
+            if (lobby.Members.TryGetValue(target.ClientID, out kickedSocket))
+                lobby.Members.Remove(target.ClientID);
+            lobby.LastTouchedUtc = DateTime.UtcNow;
+            return true;
         }
     }
 
@@ -402,7 +462,12 @@ public sealed class LobbyHub
         RoomCode = code, HostClientID = lobby.HostClientId, IsStarted = lobby.IsStarted,
         MaxPlayers = MaximumPlayers,
         Players = lobby.Players.Select(player => player.NickName).ToList(),
-        PlayerDetails = new List<LobbyPlayerInfo>(lobby.Players),
+        PlayerDetails = lobby.Players.Select(player => new LobbyPlayerInfo
+        {
+            ClientID = player.ClientID,
+            NickName = player.NickName,
+            IsConnected = lobby.Members.ContainsKey(player.ClientID),
+        }).ToList(),
     };
 
     private static bool TryNormalizePlayer(string clientId, string nickName, out string normalizedClientId, out string normalizedNickName, out string error)
