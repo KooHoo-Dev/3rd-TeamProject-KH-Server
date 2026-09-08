@@ -27,7 +27,7 @@ public static class ServerDynamiteCatalog
             ThrowSpeed: 10f,
             FuseTime: 5f,
             ExplosionRadius: 2.5f,
-            ExplosionPower: 3),
+            ExplosionPower: 6),
     };
 
     private static readonly Dictionary<int, MineDefinition> mineDefinitions = new()
@@ -36,7 +36,7 @@ public static class ServerDynamiteCatalog
             ItemID: 53,
             ArmDelay: 1.5f,
             DetectionRadius: 1.5f,
-            ExplosionRadius: 2.5f,
+            ExplosionRadius: 1.5f,
             ExplosionPower: 3),
     };
 

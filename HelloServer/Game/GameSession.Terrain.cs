@@ -324,6 +324,9 @@ public sealed partial class GameSession
 
         lock (stateGate)
         {
+            // 폭발의 지형 파괴력은 ExplosionPower 그대로 사용하고,
+            // 플레이어에게 가하는 피해만 채굴력 기준으로 증폭한다.
+            int playerDamage = projectile.ExplosionPower * 3;
             float radiusSqr = projectile.ExplosionRadius * projectile.ExplosionRadius;
             List<PlayerHealthChangedMessage> changed = new();
             List<PlayerDiedMessage> died = new();
@@ -337,7 +340,7 @@ public sealed partial class GameSession
 
                 if (TryApplyPlayerDamageUnsafe(
                         player,
-                        projectile.ExplosionPower,
+                        playerDamage,
                         "Explosion",
                         requestId,
                         out PlayerHealthChangedMessage changedMessage,

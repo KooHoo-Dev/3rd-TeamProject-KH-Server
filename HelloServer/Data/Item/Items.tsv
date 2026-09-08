@@ -1,8 +1,8 @@
 ID	Name	Description	Price	ItemType	PrefabKey	SpriteKey	PickaxeRange	DigPower	Weight	Cooldown
 0	낡은 곡괭이	기본 지급되는 곡괭이.	0	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/Pickaxe_Thumbnail	1.5	1	0	0
 1	청동 곡괭이	기본 곡괭이보다 채굴력이 개선된 청동 곡괭이.	200	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/BronzePickaxe_Thumbnail	1.5	2	0	0
-2	은 곡괭이	더 깊은 심도까지 수월하게 파내려갈 수 있는 은 곡괭이.	350	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/SilverPickaxe_Thumbnail	2	4	0	0
-3	금 곡괭이	금 곡괭이. 어째서인지 강철보다 단단하다.	450	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/GoldPickaxe_Thumbnail	2	8	0	0
+2	은 곡괭이	더 깊은 심도까지 수월하게 파내려갈 수 있는 은 곡괭이.	350	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/SilverPickaxe_Thumbnail	2.5	4	0	0
+3	금 곡괭이	금 곡괭이. 어째서인지 강철보다 단단하다.	450	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/GoldPickaxe_Thumbnail	2.5	8	0	0
 50	다이너마이트	강력한 폭발물. 절대 사람을 향해 던지지 말자.	180	Usable	Items/Usable/Dynamite	Items/Usable/Dynamite_Thumbnail	0	0	4	12
 51	포션	체력을 회복시켜주는 포션.	80	Usable	Items/Usable/Potion	Items/Usable/Potion_Thumbnail	0	0	4	18
 52	탐지기	범위 안의 광맥을 찾아주는 탐지기.	120	Usable	Items/Usable/Detector	Items/Usable/Detector_Thumbnail	0	0	4	15
