@@ -482,7 +482,7 @@ public sealed partial class GameSession
         float cellSize = State.Terrain.CellSize;
         float cellX = player.AssignedSpawnCellX + 0.5f;
         // 지하 최상단 플랫폼의 한 셀 위(안전 구역 안)에 배치한다.
-        float cellY = State.Terrain.SpawnAreaOriginY + 0.5f;
+        float cellY = State.Terrain.SpawnAreaOriginY + 1f;
         return (
             State.Terrain.OriginX + cellX * cellSize,
             State.Terrain.OriginY + cellY * cellSize);
