@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace HelloServer;
 
@@ -306,11 +307,24 @@ public sealed class ServerTerrainCatalog
         using System.Security.Cryptography.SHA256 hash = System.Security.Cryptography.SHA256.Create();
         foreach (string path in Directory.GetFiles(dataRoot, "*.tsv").OrderBy(value => value))
         {
-            byte[] bytes = File.ReadAllBytes(path);
+            byte[] bytes = ReadNormalizedTsvBytes(path);
             hash.TransformBlock(bytes, 0, bytes.Length, null, 0);
         }
 
         hash.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
         return Convert.ToHexString(hash.Hash).Substring(0, 12).ToLowerInvariant();
+    }
+
+    private static byte[] ReadNormalizedTsvBytes(string path)
+    {
+        string content = Encoding.UTF8.GetString(File.ReadAllBytes(path));
+        content = content.TrimStart('\uFEFF')
+            .Replace("\r\n", "\n")
+            .Replace('\r', '\n');
+
+        if (content.EndsWith("\n", StringComparison.Ordinal))
+            content = content[..^1];
+
+        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(content);
     }
 }
