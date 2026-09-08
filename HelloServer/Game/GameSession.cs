@@ -11,6 +11,7 @@ public sealed partial class GameSession
     private const long MinimumHealRequestIntervalMilliseconds = 100;
     private const long ManualDropPickupDelayMilliseconds = 2_000;
     private const float MaximumDynamiteStartDistance = 1.5f;
+    private const int TorchItemID = 54;
     // player.move는 주기 전송이므로 감지 반경 경계에서 한 패킷만큼의 위치 차이를 허용한다.
     private const float MineDetectionPositionTolerance = 1f;
 
@@ -40,6 +41,7 @@ public sealed partial class GameSession
     private long lastDropID;
     private long lastCollapseID;
     private long lastDynamiteProjectileID;
+    private long lastTorchID;
     private readonly Dictionary<string, long> lastDamageRequestAtMilliseconds = new();
     private readonly Dictionary<string, long> lastHealRequestAtMilliseconds = new();
 
@@ -170,7 +172,10 @@ public sealed partial class GameSession
             (player.X, player.Y) = GetSpawnPositionUnsafe(player);
             State.Players[user.Id] = player;
 
-            PlayerInventoryRoomState inventory = new();
+            PlayerInventoryRoomState inventory = new()
+            {
+                MaxWeight = debugMode ? playerConfig.DebugMaxWeight : playerConfig.MaxWeight,
+            };
             if (debugMode)
             {
                 inventory.Quantities[100] = DebugItemQuantity;
@@ -1046,6 +1051,14 @@ public sealed partial class GameSession
                     out errorMessage);
             }
 
+            if (request.ItemID == TorchItemID)
+            {
+                return TryPlaceTorchUnsafe(
+                    playerID, player, request,
+                    out thrownMessage, out inventoryMessage,
+                    out errorCode, out errorMessage);
+            }
+
             if (ServerDynamiteCatalog.TryGetMine(
                     request.ItemID,
                     out ServerDynamiteCatalog.MineDefinition mine))
@@ -1274,6 +1287,63 @@ public sealed partial class GameSession
             projectile = pending;
             return true;
         }
+    }
+
+    private bool TryPlaceTorchUnsafe(
+        string playerID,
+        PlayerRoomState player,
+        DynamiteThrowRequest request,
+        out DynamiteThrownMessage thrownMessage,
+        out InventorySnapshotMessage inventoryMessage,
+        out string errorCode,
+        out string errorMessage)
+    {
+        thrownMessage = null;
+        inventoryMessage = null;
+        errorCode = null;
+        errorMessage = null;
+
+        if (State.Inventory.Players.TryGetValue(playerID, out PlayerInventoryRoomState inventory) == false)
+            return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
+        if (inventory.Quantities.GetValueOrDefault(request.ItemID) <= 0)
+            return Fail("inventory.insufficient", "횃불 수량이 부족합니다.", out errorCode, out errorMessage);
+
+        float deltaX = request.StartX - player.X;
+        float deltaY = request.StartY - player.Y;
+        if (deltaX * deltaX + deltaY * deltaY >
+            MaximumDynamiteStartDistance * MaximumDynamiteStartDistance)
+            return Fail("torch.invalid_position", "횃불 설치 위치가 플레이어와 너무 멉니다.", out errorCode, out errorMessage);
+
+        int cellX = (int)Math.Floor((request.StartX - State.Terrain.OriginX) / State.Terrain.CellSize);
+        int cellY = (int)Math.Floor((request.StartY - State.Terrain.OriginY) / State.Terrain.CellSize);
+        if (cellX < 0 || cellX >= State.Terrain.MapWidth ||
+            cellY < 0 || cellY >= State.Terrain.MapHeight)
+            return Fail("torch.out_of_map", "맵 밖에는 횃불을 설치할 수 없습니다.", out errorCode, out errorMessage);
+
+        GridCoord cell = new(cellX, cellY);
+        if (State.Torches.Cells.Add(cell) == false)
+            return Fail("torch.cell_occupied", "이미 횃불이 설치된 타일입니다.", out errorCode, out errorMessage);
+
+        int remainingQuantity = inventory.Quantities[request.ItemID] - 1;
+        if (remainingQuantity == 0) inventory.Quantities.Remove(request.ItemID);
+        else inventory.Quantities[request.ItemID] = remainingQuantity;
+
+        float x = State.Terrain.OriginX + (cellX + 0.5f) * State.Terrain.CellSize;
+        float y = State.Terrain.OriginY + (cellY + 0.5f) * State.Terrain.CellSize;
+        thrownMessage = new DynamiteThrownMessage
+        {
+            RequestId = request.RequestId,
+            ProjectileID = $"torch-{Interlocked.Increment(ref lastTorchID)}",
+            OwnerPlayerID = playerID,
+            ItemID = request.ItemID,
+            StartX = x,
+            StartY = y,
+            CellX = cellX,
+            CellY = cellY,
+            IsTorch = true,
+        };
+        inventoryMessage = CreateInventorySnapshotUnsafe(playerID, request.RequestId);
+        return true;
     }
 
     private bool TryPlaceMineUnsafe(

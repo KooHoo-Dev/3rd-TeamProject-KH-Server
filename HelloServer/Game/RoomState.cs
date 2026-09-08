@@ -11,6 +11,7 @@ public sealed class RoomState
     public InventoryRoomState Inventory { get; } = new();
     public WorldItemRoomState WorldItems { get; } = new();
     public DynamiteRoomState Dynamites { get; } = new();
+    public TorchRoomState Torches { get; } = new();
     public GameFlowRoomState GameFlow { get; } = new();
 }
 
@@ -97,9 +98,8 @@ public sealed class InventoryRoomState
 
 public sealed class PlayerInventoryRoomState
 {
-    // 현재 클라이언트 PlayerInventory의 기본 한도와 같은 값입니다.
-    // 플레이어별 장비/스탯 한도가 생기면 이 값을 접속 시점에 설정합니다.
-    public int MaxWeight { get; init; } = 1000;
+    // playerconfig.json에서 접속 시점에 확정됩니다.
+    public int MaxWeight { get; init; }
     public Dictionary<int, int> Quantities { get; } = new();
     public Stack<ShopPurchaseRecord> ShopPurchaseHistory { get; } = new();
 }
@@ -115,6 +115,12 @@ public sealed class DynamiteRoomState
 {
     // GameSession.stateGate 안에서만 접근
     public Dictionary<string, PendingDynamiteState> Projectiles { get; } = new();
+}
+
+public sealed class TorchRoomState
+{
+    // GameSession.stateGate 안에서만 접근
+    public HashSet<GridCoord> Cells { get; } = new();
 }
 
 public sealed class PendingDynamiteState
