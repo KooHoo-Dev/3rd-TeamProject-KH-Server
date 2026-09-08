@@ -91,7 +91,7 @@ public sealed partial class ServerTerrainGenerator
         return false;
     }
 
-    // 지형 맨 위에 상자 모양 방을 얹습니다. 여기서 맵 높이가 늘어납니다.
+    // 지형 맨 위에 스폰 안전 구역을 얹고, 플랫폼은 지하 최상단에 둡니다.
     private static void AttachRespawnArea(MapGrid map, ServerTerrainCatalog.ProfileDefinition profile)
     {
         int terrainHeight = map.Height;
@@ -111,9 +111,25 @@ public sealed partial class ServerTerrainGenerator
             map.SetTile(new GridCoord(areaMaxX, y), ServerTerrainTileType.Bedrock);
         }
 
-        int platformMinX = areaMinX + profile.BoundaryThickness + profile.RespawnExitWidth;
-        int platformMaxX = platformMinX + profile.RespawnPlatformWidth - 1;
+        int platformMinX = areaMinX + profile.BoundaryThickness;
+        int platformMaxX = areaMaxX - profile.BoundaryThickness;
+        int platformY = terrainHeight - 1;
+        int emptyBelowPlatformY = platformY - 1;
+
+        // 스폰 플랫폼 아래 한 행은 비워 둔다. 양쪽 기반암만 남겨
+        // 플랫폼 위에서 아래 방향 점프로 지하로 진입할 수 있게 한다.
         for (int x = platformMinX; x <= platformMaxX; x++)
-            map.SetTile(new GridCoord(x, areaMinY), ServerTerrainTileType.SpawnPlatform);
+        {
+            map.SetTile(new GridCoord(x, platformY), ServerTerrainTileType.SpawnPlatform);
+            if (emptyBelowPlatformY >= 0)
+                map.SetTile(new GridCoord(x, emptyBelowPlatformY), ServerTerrainTileType.Empty);
+        }
+
+        for (int y = emptyBelowPlatformY; y <= platformY; y++)
+        {
+            if (y < 0) continue;
+            map.SetTile(new GridCoord(areaMinX, y), ServerTerrainTileType.Bedrock);
+            map.SetTile(new GridCoord(areaMaxX, y), ServerTerrainTileType.Bedrock);
+        }
     }
 }

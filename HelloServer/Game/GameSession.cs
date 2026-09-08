@@ -309,7 +309,9 @@ public sealed partial class GameSession
         player.VelocityX = move.VelocityX;
         player.VelocityY = move.VelocityY;
         player.IsGrounded = move.IsGrounded;
-        player.IsClimbing = move.IsClimbing;
+        // 스폰 안전 구역에서는 서버가 등반 상태를 인정하지 않는다.
+        player.IsClimbing = IsInSpawnAreaUnsafe(player.X, player.Y) == false &&
+                            move.IsClimbing;
         player.IsBuried = move.IsBuried;
     }
 
@@ -452,10 +454,10 @@ public sealed partial class GameSession
     {
         ServerTerrainCatalog.ProfileDefinition profile =
             terrainCatalog.GetProfile(State.MapSession.Descriptor.ProfileID);
-        int platformMinX = State.Terrain.SpawnAreaOriginX +
-                           profile.BoundaryThickness + profile.RespawnExitWidth;
-        int spawnMinX = platformMinX + 2;
-        int spawnCount = profile.RespawnPlatformWidth - 4;
+        int platformMinX = State.Terrain.SpawnAreaOriginX + profile.BoundaryThickness;
+        int platformWidth = State.Terrain.SpawnAreaWidth - profile.BoundaryThickness * 2;
+        int spawnCount = Math.Min(platformWidth, Math.Max(1, profile.RespawnPlatformWidth - 4));
+        int spawnMinX = platformMinX + (platformWidth - spawnCount) / 2;
         List<int> candidates = Enumerable.Range(spawnMinX, spawnCount).ToList();
 
         // 방의 시드로 한 번 정해지는 후보 순서를 모든 플레이어가 공유
@@ -479,8 +481,8 @@ public sealed partial class GameSession
     {
         float cellSize = State.Terrain.CellSize;
         float cellX = player.AssignedSpawnCellX + 0.5f;
-        // 플레이어 Collider가 플랫폼 EdgeCollider와 겹치지 않도록 한 셀 위로 설정
-        float cellY = State.Terrain.SpawnAreaOriginY + 2.5f;
+        // 지하 최상단 플랫폼의 한 셀 위(안전 구역 안)에 배치한다.
+        float cellY = State.Terrain.SpawnAreaOriginY + 0.5f;
         return (
             State.Terrain.OriginX + cellX * cellSize,
             State.Terrain.OriginY + cellY * cellSize);
@@ -972,6 +974,8 @@ public sealed partial class GameSession
                 return Fail("player.not_found", "플레이어 상태를 찾을 수 없습니다.", out errorCode, out errorMessage);
             if (player.IsDead)
                 return Fail("player.dead", "사망 상태에서는 아이템을 사용할 수 없습니다.", out errorCode, out errorMessage);
+            if (IsInSpawnAreaUnsafe(player.X, player.Y))
+                return Fail("item.spawn_restricted", "스폰 구역에서는 아이템을 사용할 수 없습니다.", out errorCode, out errorMessage);
             if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false ||
                 inventory.Quantities.GetValueOrDefault(request.ItemID) <= 0)
                 return Fail("inventory.insufficient", "아이템 수량이 부족합니다.", out errorCode, out errorMessage);
@@ -1047,6 +1051,15 @@ public sealed partial class GameSession
                 return Fail(
                     "player.dead",
                     "사망 상태에서는 다이너마이트를 사용할 수 없습니다.",
+                    out errorCode,
+                    out errorMessage);
+            }
+
+            if (IsInSpawnAreaUnsafe(player.X, player.Y))
+            {
+                return Fail(
+                    "item.spawn_restricted",
+                    "스폰 구역에서는 아이템을 사용할 수 없습니다.",
                     out errorCode,
                     out errorMessage);
             }
