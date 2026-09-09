@@ -446,6 +446,11 @@ public sealed partial class GameSession
             (float spawnX, float spawnY) = GetSpawnPositionUnsafe(player);
             player.X = spawnX;
             player.Y = spawnY;
+            player.VelocityX = 0f;
+            player.VelocityY = 0f;
+            player.IsGrounded = false;
+            player.IsClimbing = false;
+            player.IsBuried = false;
             player.CurrentHealth = player.MaxHealth;
             player.IsDead = false;
             respawnedMessage = new PlayerRespawnedMessage

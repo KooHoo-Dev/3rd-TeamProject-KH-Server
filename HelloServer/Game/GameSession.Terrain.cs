@@ -46,10 +46,17 @@ public sealed partial class GameSession
                  existing.TileTypeID == (int)ServerTerrainTileType.DeathLoot))
                 return Fail("terrain.invalid_death_loot", "사망 보관함을 만들 수 없는 지형입니다.", out errorCode, out errorMessage);
 
+            int goldItemID = itemCatalog.GoldItemID;
+            int goldQuantity = inventory.Quantities.GetValueOrDefault(goldItemID);
+            int retainedGold = goldQuantity - goldQuantity / 2;
             TerrainLootEntryDto[] lootEntries = inventory.Quantities
-                .Where(pair => pair.Key > 0 && pair.Value > 0)
+                // 골드는 사망 보관함과 리스폰 후 인벤토리에 절반씩 나눈다.
+                .Where(pair => pair.Key > 0 &&
+                               (pair.Key != goldItemID ? pair.Value > 0 : pair.Value / 2 > 0))
                 .OrderBy(pair => pair.Key)
-                .Select(pair => new TerrainLootEntryDto(pair.Key, pair.Value))
+                .Select(pair => new TerrainLootEntryDto(
+                    pair.Key,
+                    pair.Key == goldItemID ? pair.Value / 2 : pair.Value))
                 .ToArray();
             if (lootEntries.Length == 0)
                 return Fail("inventory.empty", "보관할 아이템이 없습니다.", out errorCode, out errorMessage);
@@ -65,6 +72,8 @@ public sealed partial class GameSession
             };
             State.Terrain.Cells[deathCell] = deathLootCell;
             inventory.Quantities.Clear();
+            if (retainedGold > 0)
+                inventory.Quantities[goldItemID] = retainedGold;
             player.IsDead = true;
             player.DeathX = player.X;
             player.DeathY = player.Y;
