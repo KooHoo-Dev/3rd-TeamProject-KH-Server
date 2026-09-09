@@ -16,6 +16,7 @@ public sealed class InventorySellPacketHandler : IPacketHandler
                 request,
                 out InventorySnapshotMessage inventoryMessage,
                 out GameEndedMessage endedMessage,
+                out int earnedGold,
                 out string errorCode,
                 out string errorMessage) == false)
         {
@@ -29,6 +30,14 @@ public sealed class InventorySellPacketHandler : IPacketHandler
         }
 
         await context.SendAsync(inventoryMessage);
+        if (earnedGold > 0)
+        {
+            await context.SendAsync(new ChatSystemMessage
+            {
+                ElapsedSeconds = context.GameSession.GetElapsedGameSeconds(),
+                Text = $"자원을 판매하여 {earnedGold:N0} 골드를 획득했습니다.",
+            });
+        }
         await context.BroadcastAsync(context.GameSession.CreateGoldRankingMessage());
         if (endedMessage != null)
             await context.BroadcastAsync(endedMessage);

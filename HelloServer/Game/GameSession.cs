@@ -667,11 +667,13 @@ public sealed partial class GameSession
         InventorySellRequest request,
         out InventorySnapshotMessage inventoryMessage,
         out GameEndedMessage endedMessage,
+        out int earnedGold,
         out string errorCode,
         out string errorMessage)
     {
         inventoryMessage = null;
         endedMessage = null;
+        earnedGold = 0;
         errorCode = null;
         errorMessage = null;
 
@@ -691,7 +693,7 @@ public sealed partial class GameSession
             if (State.Inventory.Players.TryGetValue(playerId, out PlayerInventoryRoomState inventory) == false)
                 return Fail("inventory.not_found", "플레이어 인벤토리를 찾을 수 없습니다.", out errorCode, out errorMessage);
 
-            long earnedGold = 0;
+            long earnedGoldValue = 0;
             List<int> soldItemIDs = new();
             foreach ((int itemID, int quantity) in inventory.Quantities)
             {
@@ -699,24 +701,25 @@ public sealed partial class GameSession
                     item.ItemType != "Exchange")
                     continue;
 
-                earnedGold += (long)item.Price * quantity;
-                if (earnedGold > int.MaxValue)
+                earnedGoldValue += (long)item.Price * quantity;
+                if (earnedGoldValue > int.MaxValue)
                     return Fail("inventory.gold_overflow", "판매 골드가 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
                 soldItemIDs.Add(itemID);
             }
 
             int goldItemID = itemCatalog.GoldItemID;
             int currentGold = inventory.Quantities.GetValueOrDefault(goldItemID);
-            if (earnedGold > int.MaxValue - currentGold)
+            if (earnedGoldValue > int.MaxValue - currentGold)
                 return Fail("inventory.gold_overflow", "보유 골드가 수량 한도를 초과했습니다.", out errorCode, out errorMessage);
 
             foreach (int itemID in soldItemIDs)
                 inventory.Quantities.Remove(itemID);
-            if (earnedGold > 0)
-                inventory.Quantities[goldItemID] = currentGold + (int)earnedGold;
+            if (earnedGoldValue > 0)
+                inventory.Quantities[goldItemID] = currentGold + (int)earnedGoldValue;
 
             inventoryMessage = CreateInventorySnapshotUnsafe(playerId, request.RequestId);
             endedMessage = TryEndGameForGoldUnsafe(playerId, inventory);
+            earnedGold = (int)earnedGoldValue;
             return true;
         }
     }

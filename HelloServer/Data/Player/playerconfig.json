@@ -1,6 +1,6 @@
 {
   "InitialHealth": 100,
   "MaxHealth": 100,
-  "MaxWeight": 100,
+  "MaxWeight": 200,
   "DebugMaxWeight": 9999
 }

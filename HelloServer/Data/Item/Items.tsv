@@ -1,12 +1,12 @@
 ID	Name	Description	Price	ItemType	PrefabKey	SpriteKey	PickaxeRange	DigPower	Weight	Cooldown
-0	낡은 곡괭이	낡은 곡괭이	0	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/Pickaxe_Thumbnail	1.5	1	10	0
-1	청동 곡괭이	청동 곡괭이	250	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/BronzePickaxe_Thumbnail	1.5	2	10	0
-2	은 곡괭이	은 곡괭이	500	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/SilverPickaxe_Thumbnail	2.5	4	10	0
-3	금 곡괭이	금 곡괭이	750	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/GoldPickaxe_Thumbnail	2.5	8	10	0
+0	낡은 곡괭이	낡은 곡괭이	0	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/Pickaxe_Thumbnail	2	1	10	0
+1	청동 곡괭이	청동 곡괭이	250	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/BronzePickaxe_Thumbnail	2	2	10	0
+2	은 곡괭이	은 곡괭이	500	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/SilverPickaxe_Thumbnail	3	4	10	0
+3	금 곡괭이	금 곡괭이	750	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/GoldPickaxe_Thumbnail	3	8	10	0
 50	다이너마이트	투척하여 5초 뒤 반경 2.5칸 범위의 타일에 6의 채굴 피해, 플레이어에게 30의 피해를 준다.	15	Usable	Items/Usable/Dynamite	Items/Usable/Dynamite_Thumbnail	0	0	2	4
-51	포션	현재 체력을 20 회복한다.	20	Usable	Items/Usable/Potion	Items/Usable/Potion_Thumbnail	0	0	2	20
+51	포션	현재 체력을 20만큼 회복한다.	20	Usable	Items/Usable/Potion	Items/Usable/Potion_Thumbnail	0	0	2	20
 52	탐지기	반경 6칸 내에 존재하는 자원을 파동 형태로 탐지하여 4초간 위치를 표시한다.	30	Usable	Items/Usable/Detector	Items/Usable/Detector_Thumbnail	0	0	2	8
-53	지뢰	설치 후 1.5초의 유예 시간을 두고, 반경 1.5칸 내에 접근하면 폭발하여 반경 1.5칸 범위의 타일에 3의 채굴 피해, 플레이어에게 30의 피해를 준다.	25	Usable	Items/Usable/Mine	Items/Usable/Mine_Thumbnail	0	0	2	6
+53	지뢰	설치 후 1.5초 이후부터 반경 1.5칸 내에 접근하면 폭발하여 반경 1.5칸 범위의 타일에 3의 채굴 피해, 플레이어에게 30의 피해를 준다.	25	Usable	Items/Usable/Mine	Items/Usable/Mine_Thumbnail	0	0	2	6
 54	횃불	설치 시 즉시 점등되어 주변을 밝힌다.	5	Usable	Items/Usable/Torch	Items/Usable/Torch_Thumbnail	0	0	1	1
 99	디버그 곡괭이	개발자용 곡괭이	0	Pickaxe	Items/Pickaxe/Pickaxe	Items/Pickaxe/Pickaxe_Thumbnail	100	100	0	0
 100	Gold	골드	0	Gold	Gold	Gold_Thumbnail	0	0	0	0
@@ -14,6 +14,6 @@ ID	Name	Description	Price	ItemType	PrefabKey	SpriteKey	PickaxeRange	DigPower	Wei
 102	황동	황동	11	Exchange	Ore/BronzeOreItem	Ore/BronzeOre_Thumbnail	0	0	3	0
 103	은광석	은광석	26	Exchange	Ore/SilverOreItem	Ore/SilverOre_Thumbnail	0	0	4	0
 104	금광석	금광석	65	Exchange	Ore/GoldOreItem	Ore/GoldOre_Thumbnail	0	0	4	0
-150	사파이어 원석	사파이어 원석	55	Exchange	Rough/SapphireRoughItem	Rough/SapphireRough_Thumbnail	0	0	1	0
-151	루비 원석	루비 원석	130	Exchange	Rough/RubyRoughItem	Rough/RubyRough_Thumbnail	0	0	1	0
-152	다이아몬드 원석	다이아몬드 원석	650	Exchange	Rough/DiamondRoughItem	Rough/DiamondRough_Thumbnail	0	0	1	0
+150	사파이어 원석	사파이어 원석	55	Exchange	Rough/SapphireRoughItem	Rough/SapphireRough_Thumbnail	0	0	3	0
+151	루비 원석	루비 원석	130	Exchange	Rough/RubyRoughItem	Rough/RubyRough_Thumbnail	0	0	4	0
+152	다이아몬드 원석	다이아몬드 원석	650	Exchange	Rough/DiamondRoughItem	Rough/DiamondRough_Thumbnail	0	0	5	0
