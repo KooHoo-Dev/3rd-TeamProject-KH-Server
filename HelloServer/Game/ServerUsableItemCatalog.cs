@@ -7,7 +7,7 @@ public static class ServerUsableItemCatalog
 
     private static readonly Dictionary<int, Definition> definitions = new()
     {
-        [51] = new Definition(51, 30, 0f),
+        [51] = new Definition(51, 20, 0f),
         [52] = new Definition(52, 0, 6f),
     };
 

@@ -325,8 +325,8 @@ public sealed partial class GameSession
         lock (stateGate)
         {
             // 폭발의 지형 파괴력은 ExplosionPower 그대로 사용하고,
-            // 플레이어에게 가하는 피해만 채굴력 기준으로 증폭한다.
-            int playerDamage = projectile.ExplosionPower * 3;
+            // 다이너마이트와 지뢰 모두 플레이어에게 30의 피해를 준다.
+            const int playerDamage = 30;
             float radiusSqr = projectile.ExplosionRadius * projectile.ExplosionRadius;
             List<PlayerHealthChangedMessage> changed = new();
             List<PlayerDiedMessage> died = new();

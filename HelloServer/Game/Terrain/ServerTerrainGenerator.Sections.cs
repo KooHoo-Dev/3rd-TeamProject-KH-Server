@@ -116,14 +116,15 @@ public sealed partial class ServerTerrainGenerator
         int platformY = terrainHeight - 1;
         int emptyBelowPlatformY = platformY - 1;
 
-        // 스폰 플랫폼 아래 한 행은 비워 플랫폼 위에서 아래 방향 점프로
-        // 지하로 진입할 수 있게 한다.
-        for (int x = platformMinX; x <= platformMaxX; x++)
+        // 지하 최상단은 중앙 플랫폼과 양옆의 고정 배드락 한 줄로 구성한다.
+        // 플랫폼 바로 아래 행만 비워 하향 점프로 지하로 진입할 수 있게 한다.
+        for (int x = 0; x < map.Width; x++)
         {
-            GridCoord platformCell = new(x, platformY);
-            map.SetTile(platformCell, ServerTerrainTileType.SpawnPlatform);
-            map.SetResource(platformCell, 0);
-            if (emptyBelowPlatformY >= 0)
+            GridCoord topCell = new(x, platformY);
+            bool isPlatform = x >= platformMinX && x <= platformMaxX;
+            map.SetTile(topCell, isPlatform ? ServerTerrainTileType.SpawnPlatform : ServerTerrainTileType.Bedrock);
+            map.SetResource(topCell, 0);
+            if (isPlatform && emptyBelowPlatformY >= 0)
                 map.SetTile(new GridCoord(x, emptyBelowPlatformY), ServerTerrainTileType.Empty);
         }
 

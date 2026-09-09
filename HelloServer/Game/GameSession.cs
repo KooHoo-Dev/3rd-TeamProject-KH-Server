@@ -12,6 +12,8 @@ public sealed partial class GameSession
     private const long ManualDropPickupDelayMilliseconds = 2_000;
     private const float MaximumDynamiteStartDistance = 1.5f;
     private const int TorchItemID = 54;
+    private const int RespawnCandidateWidth = 8;
+    private const int RespawnPointCount = 4;
     // player.move는 주기 전송이므로 감지 반경 경계에서 한 패킷만큼의 위치 차이를 허용한다.
     private const float MineDetectionPositionTolerance = 1f;
 
@@ -183,6 +185,14 @@ public sealed partial class GameSession
                 inventory.Quantities[51] = DebugItemQuantity;
                 inventory.Quantities[52] = DebugItemQuantity;
                 inventory.Quantities[53] = DebugItemQuantity;
+            }
+            else
+            {
+                inventory.Quantities[50] = 2;
+                inventory.Quantities[51] = 2;
+                inventory.Quantities[52] = 3;
+                inventory.Quantities[53] = 2;
+                inventory.Quantities[54] = 5;
             }
 
             State.Inventory.Players.TryAdd(user.Id, inventory);
@@ -456,9 +466,9 @@ public sealed partial class GameSession
             terrainCatalog.GetProfile(State.MapSession.Descriptor.ProfileID);
         int platformMinX = State.Terrain.SpawnAreaOriginX + profile.BoundaryThickness;
         int platformWidth = State.Terrain.SpawnAreaWidth - profile.BoundaryThickness * 2;
-        int spawnCount = Math.Min(platformWidth, Math.Max(1, profile.RespawnPlatformWidth - 4));
-        int spawnMinX = platformMinX + (platformWidth - spawnCount) / 2;
-        List<int> candidates = Enumerable.Range(spawnMinX, spawnCount).ToList();
+        int candidateCount = Math.Min(RespawnCandidateWidth, platformWidth);
+        int candidateMinX = platformMinX + (platformWidth - candidateCount) / 2;
+        List<int> candidates = Enumerable.Range(candidateMinX, candidateCount).ToList();
 
         // 방의 시드로 한 번 정해지는 후보 순서를 모든 플레이어가 공유
         Random random = new(State.MapSession.Descriptor.Seed);
@@ -467,6 +477,9 @@ public sealed partial class GameSession
             int swapIndex = random.Next(i + 1);
             (candidates[i], candidates[swapIndex]) = (candidates[swapIndex], candidates[i]);
         }
+
+        if (candidates.Count > RespawnPointCount)
+            candidates.RemoveRange(RespawnPointCount, candidates.Count - RespawnPointCount);
 
         HashSet<int> assignedCells = State.Players.Values
             .Select(existing => existing.AssignedSpawnCellX)

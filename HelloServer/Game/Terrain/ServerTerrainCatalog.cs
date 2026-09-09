@@ -40,8 +40,6 @@ public sealed class ServerTerrainCatalog
         public int TopOpeningWidth { get; init; }
         public int BoundaryThickness { get; init; }
         public int RespawnAreaHeight { get; init; }
-        public int RespawnPlatformWidth { get; init; }
-        public int RespawnExitWidth { get; init; }
         public int MapHeight => Height + RespawnAreaHeight;
         public int SpawnAreaOriginX => (Width - TopOpeningWidth) / 2;
         public int SpawnAreaOriginY => Height;
@@ -194,19 +192,11 @@ public sealed class ServerTerrainCatalog
                 TopOpeningWidth = ParseInt(row[5]),
                 BoundaryThickness = ParseInt(row[6]),
                 RespawnAreaHeight = ParseInt(row[7]),
-                RespawnPlatformWidth = ParseInt(row[8]),
-                RespawnExitWidth = ParseInt(row[9]),
             };
 
             if (profile.RespawnAreaHeight <= 0)
                 throw new InvalidDataException(
                     $"RespawnAreaHeight는 1 이상이어야 합니다: {profile.ProfileID}");
-
-            if (profile.RespawnPlatformWidth < 8 || profile.RespawnExitWidth <= 0 ||
-                profile.BoundaryThickness * 2 + profile.RespawnExitWidth * 2 +
-                profile.RespawnPlatformWidth != profile.TopOpeningWidth)
-                throw new InvalidDataException(
-                    $"스폰 구역 너비 합계가 TopOpeningWidth와 일치하지 않습니다: {profile.ProfileID}");
 
             profiles.Add(profile.ProfileID, profile);
         }
