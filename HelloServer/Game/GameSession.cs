@@ -16,6 +16,7 @@ public sealed partial class GameSession
     private const int RespawnPointCount = 4;
     // player.move는 주기 전송이므로 감지 반경 경계에서 한 패킷만큼의 위치 차이를 허용한다.
     private const float MineDetectionPositionTolerance = 1f;
+    private const float DetectorPositionTolerance = 1f;
 
     private const int DebugItemQuantity = 1_00;
     private const int DebugGoldGrantQuantity = 2_000;
@@ -1011,7 +1012,11 @@ public sealed partial class GameSession
             GridCoord[] detectedCells = Array.Empty<GridCoord>();
             if (definition.DetectRadius > 0f)
             {
-                float radiusSqr = definition.DetectRadius * definition.DetectRadius;
+                // 서버의 마지막 이동 패킷과 클라이언트의 실제 사용 위치 사이에
+                // 한 칸 정도의 차이가 날 수 있다. 경계 자원이 누락되지 않도록
+                // 서버 권위 반경에는 동기화 허용치를 더한다.
+                float allowedRadius = definition.DetectRadius + DetectorPositionTolerance;
+                float radiusSqr = allowedRadius * allowedRadius;
                 detectedCells = State.Terrain.Cells
                     .Where(pair => pair.Value.ResourceID > 0)
                     .Where(pair =>
