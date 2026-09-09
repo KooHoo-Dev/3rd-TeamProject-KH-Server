@@ -653,6 +653,30 @@ public sealed partial class GameSession
                 }
             }
 
+#if DEBUG
+            // 서버는 FallingChunk 물리를 직접 시뮬레이션하지 않으므로, 확정 배치가
+            // 당시 서버가 알고 있던 플레이어 셀과 겹치는지를 기록해 클라이언트의
+            // EdgeCollider 진입/매몰 진단과 대조한다. 게임 규칙은 변경하지 않는다.
+            foreach (PlayerRoomState player in State.Players.Values)
+            {
+                int playerCellX = (int)Math.Floor(
+                    (player.X - State.Terrain.OriginX) / State.Terrain.CellSize);
+                int playerCellY = (int)Math.Floor(
+                    (player.Y - State.Terrain.OriginY) / State.Terrain.CellSize);
+                GridCoord playerCell = new(playerCellX, playerCellY);
+
+                if (targetCells.Contains(playerCell))
+                {
+                    Console.WriteLine(
+                        $"[Collapse Diagnose] placement overlap candidate: " +
+                        $"collapse={request.CollapseID}, player={player.Id}, " +
+                        $"playerWorld=({player.X:F3}, {player.Y:F3}), " +
+                        $"playerCell=({playerCell.X}, {playerCell.Y}), " +
+                        $"buried={player.IsBuried}, targetCells={targetCells.Count}");
+                }
+            }
+#endif
+
             uint baseRevision = State.Terrain.Revision;
 
             // 같은 좌표가 원본 제거와 최종 배치에 모두 포함될 수 있으므로
