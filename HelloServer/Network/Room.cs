@@ -311,15 +311,10 @@ public sealed class Room
 
     public Task BroadcastStateAsync()
     {
-        if (gameSession.IsGameplayActive &&
-            Interlocked.Exchange(ref gameplayStartAnnounced, 1) == 0)
-        {
-            EnqueueBroadcast(new ChatSystemMessage
-            {
-                ElapsedSeconds = 0,
-                Text = "게임이 시작되었습니다."
-            });
-        }
+        // 게임 시작 안내는 클라이언트가 GameStartedMessage의 게임 설정값으로 표시한다.
+        // 여기서 별도 시스템 메시지를 브로드캐스트하면 동일 안내가 중복된다.
+        if (gameSession.IsGameplayActive)
+            Interlocked.Exchange(ref gameplayStartAnnounced, 1);
 
         int remainingSeconds = gameSession.GetRemainingGameSeconds();
         if (remainingSeconds is > 10 and <= 60 &&
