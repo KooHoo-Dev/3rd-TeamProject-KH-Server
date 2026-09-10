@@ -191,7 +191,7 @@ public sealed partial class GameSession
             {
                 inventory.Quantities[50] = 2;
                 inventory.Quantities[51] = 2;
-                inventory.Quantities[52] = 3;
+                inventory.Quantities[52] = 2;
                 inventory.Quantities[53] = 2;
                 inventory.Quantities[54] = 5;
             }
